@@ -77,7 +77,7 @@ export const appConfig: AppConfig = {
     logo: '/logo.png',
     icon: 'fa-solid fa-wand-magic-sparkles',
     appName: '照片模糊修复高清',
-    version: 'v1.0.1',
+    version: 'v1.0.3',
   },
   about: {
     description: 'about.desc',
@@ -101,12 +101,14 @@ export const appConfig: AppConfig = {
   menus: undefined,
   contextMenu: undefined,
   releases: [
-    { version: 'v1.0.1', desc: 'release.v101', current: true },
+    { version: 'v1.0.3', desc: 'release.v103', current: true },
+    { version: 'v1.0.2', desc: 'release.v102' },
+    { version: 'v1.0.1', desc: 'release.v101' },
   ],
-  statusText: 'AI 智能增强 · 让模糊照片重获清晰',
+  statusText: 'AI 智能增强 · 人像超清修复 · 通用去模糊',
   defaultTheme: 'light',
   statusBarVisible: true,
-  statusRight: 'v1.0.1',
+  statusRight: 'v1.0.3',
   pay: {
     appName: '照片模糊修复高清',
     price: 39.9,

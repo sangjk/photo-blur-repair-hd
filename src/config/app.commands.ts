@@ -88,6 +88,22 @@ export function setupCommands(ctx: CommandContext): Record<string, (id: string) 
     'repair.open': () => window.dispatchEvent(new CustomEvent('pr:open')),
     'repair.process': () => window.dispatchEvent(new CustomEvent('pr:process')),
     'repair.export': () => window.dispatchEvent(new CustomEvent('pr:export')),
+    // 人像超清修复模块：先切到人像页签，再执行对应动作
+    'portrait.open': () => {
+      window.dispatchEvent(new CustomEvent('wb:portrait'))
+      window.dispatchEvent(new CustomEvent('pt:open'))
+    },
+    'portrait.process': () => {
+      window.dispatchEvent(new CustomEvent('wb:portrait'))
+      window.dispatchEvent(new CustomEvent('pt:process'))
+    },
+    'portrait.export': () => {
+      window.dispatchEvent(new CustomEvent('wb:portrait'))
+      window.dispatchEvent(new CustomEvent('pt:export'))
+    },
+    // 页签切换
+    'view.tabGeneral': () => window.dispatchEvent(new CustomEvent('wb:general')),
+    'view.tabPortrait': () => window.dispatchEvent(new CustomEvent('wb:portrait')),
   }
 }
 
@@ -108,6 +124,19 @@ export const extraMenus: MenuDef[] = [
       { id: 'repair.open', labelKey: 'cmd.repair.open', icon: 'fa-solid fa-folder-open', shortcut: 'Ctrl+O' },
       { id: 'repair.process', labelKey: 'cmd.repair.process', icon: 'fa-solid fa-wand-magic-sparkles' },
       { id: 'repair.export', labelKey: 'cmd.repair.export', icon: 'fa-solid fa-download', shortcut: 'Ctrl+S' },
+    ],
+  },
+  {
+    id: 'menu-portrait',
+    labelKey: 'menu.portrait',
+    accel: 'P',
+    items: [
+      { id: 'portrait.open', labelKey: 'cmd.portrait.open', icon: 'fa-solid fa-user-round', shortcut: 'Ctrl+Shift+O' },
+      { id: 'portrait.process', labelKey: 'cmd.portrait.process', icon: 'fa-solid fa-wand-magic-sparkles' },
+      { id: 'portrait.export', labelKey: 'cmd.portrait.export', icon: 'fa-solid fa-download', shortcut: 'Ctrl+Shift+S' },
+      { id: 'help.sep2', separator: true },
+      { id: 'view.tabPortrait', labelKey: 'portrait.tabPortrait', icon: 'fa-solid fa-face-smile' },
+      { id: 'view.tabGeneral', labelKey: 'portrait.tabGeneral', icon: 'fa-solid fa-image' },
     ],
   },
   {

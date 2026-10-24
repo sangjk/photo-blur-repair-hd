@@ -11,7 +11,7 @@ import { onMounted, ref, watch, provide } from 'vue'
 import { t, locale as appLocale } from './i18n'
 import BaseWindow from './layouts/BaseWindow.vue'
 import PayDialog from './payment/PayDialog.vue'
-import PhotoRepair from './features/photo-repair/PhotoRepair.vue'
+import RepairWorkbench from './features/RepairWorkbench.vue'
 import type { VmqOrder } from './payment/vmq'
 import { appConfig } from './config/app.config'
 import { setupCommands, extraMenus } from './config/app.commands'
@@ -89,8 +89,8 @@ function onUnhandled(id: string) {
     @command="onUnhandled"
     @update:close-behavior="onCloseBehaviorChange"
   >
-    <!-- ===== 客户区：照片模糊修复高清 业务组件 ===== -->
-    <PhotoRepair />
+    <!-- ===== 客户区：照片模糊修复高清 业务组件（通用修复 / 人像超清修复 两个页签） ===== -->
+    <RepairWorkbench />
 
     <!-- 状态栏右侧固定信息：版本号 + 授权状态 -->
     <template #status-right>
