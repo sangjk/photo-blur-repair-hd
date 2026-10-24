@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIX 清单 —— 微软应用中心（Microsoft Store）产品标识绑定
+  =====================================================================
+  上传到微软合作伙伴中心的 MSIX，其 Identity 必须与 Partner Center
+  「产品标识」完全一致，否则提交校验失败。
+
+  字段来源（TASK.md 第 5 项，已在 src/config/store.config.ts 留档）：
+    Identity@Name                = Package/Identity/Name
+    Identity@Publisher           = Package/Identity/Publisher
+    Properties/PublisherDisplayName = PublisherDisplayName
+    （PFN / Package SID / MSA App ID / Store ID 见 store.config.ts，不进清单）
+
+  版本号：Identity@Version 为四段制（如 1.0.0.0）；
+  scripts/package-msix.ps1 每次打包会自动从 tauri.conf.json 同步，无需手改。
+
+  签名：本包不上签名（signtool），提交商店后由微软统一签名。
+
+  运行前提：目标机器需有 WebView2 Runtime（Win11 / 装有 Edge 的 Win10 自带）。
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  xmlns:uap8="http://schemas.microsoft.com/appx/manifest/uap/windows10/8"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap5 uap8 rescap">
+
+  <!-- ══ 产品标识绑定（TASK.md 第 5 项，替换软件时必须同步更新）══ -->
+  <Identity
+    Name="sangkl.14450DCD030AC"
+    Publisher="CN=3F86E209-E919-4DFD-BBFE-3B881A180019"
+    Version="1.0.1.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <!-- DisplayName：TASK.md 第 1 项软件名（Agent 在 Phase 4 替换 TODO_APP_NAME） -->
+    <DisplayName>照片模糊修复高清</DisplayName>
+    <PublisherDisplayName>sangkl</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Resources>
+    <Resource Language="zh-CN" />
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26200.0" />
+  </Dependencies>
+
+  <Capabilities>
+    <!-- 桌面全信任应用（Win32 打包进 MSIX 的标准能力） -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+  <Applications>
+    <!-- Executable 固定为 app.exe：打包脚本会把 Tauri 产物 exe 复制重命名，勿改。
+         EntryPoint 必须是 Windows.FullTrustApplication（打包 Win32 全信任应用的唯一合法入口点）：
+         写成 Windows.FullTrustProcess 等其它值会导致系统无法激活进程 ——
+         商店认证 10.1.2.10「启动即崩溃 / Error Message: N/A」的头号根因。禁止改动！ -->
+    <Application Id="App" Executable="app.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="照片模糊修复高清"
+        Description="照片模糊修复高清"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <uap5:Extension Category="windows.appExecutionAlias" Executable="app.exe" EntryPoint="Windows.FullTrustApplication">
+          <uap5:AppExecutionAlias>
+            <uap8:ExecutionAlias Alias="app.exe" />
+          </uap5:AppExecutionAlias>
+        </uap5:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

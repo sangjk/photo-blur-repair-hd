@@ -1,0 +1,31 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "窗口外壳所需的最小权限集：窗口控制 + 拖拽",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-maximized",
+    "core:window:allow-is-fullscreen",
+    "bw-allow-open-devtools",
+    "bw-allow-app-ready",
+    "bw-allow-vmq-public-config",
+    "bw-allow-vmq-sign",
+    "bw-allow-vmq-proxy",
+    "bw-allow-save-text-file",
+    "bw-allow-save-binary-file",
+    "bw-allow-license-save",
+    "bw-allow-license-load",
+    "bw-allow-license-clear",
+    "bw-allow-window-save-state",
+    "bw-allow-window-load-state",
+    "bw-allow-settings-save",
+    "bw-allow-settings-load",
+    "bw-allow-set-app-locale"
+  ]
+}

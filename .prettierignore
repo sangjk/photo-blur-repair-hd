@@ -1,0 +1,10 @@
+dist
+dist_bak_*
+node_modules
+src-tauri
+public
+.workbuddy
+*.png
+*.ico
+pnpm-lock.yaml
+package-lock.json

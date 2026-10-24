@@ -1,0 +1,85 @@
+# Application-level permissions for this shell's custom commands.
+# -----------------------------------------------------------------------------
+# Tauri v2 is a fail-closed ACL: any custom command that is NOT explicitly
+# allowed here is rejected at runtime (invoke throws -> invokeSafe swallows it
+# into null -> payments / license / window state silently break). See AGENT.md
+# pit #27. Every command in src-tauri/src/lib.rs generate_handler![...] must
+# appear below AND be referenced from src-tauri/capabilities/default.json.
+#
+# Identifiers use the "bw-" prefix: Tauri auto-generates "allow-<command>"
+# identifiers for plugin commands, and reusing that shape collides at build time.
+
+[[permission]]
+identifier = "bw-allow-open-devtools"
+description = "Allow open_devtools (no-op in release builds)"
+commands.allow = ["open_devtools"]
+
+[[permission]]
+identifier = "bw-allow-app-ready"
+description = "Allow app_ready: frontend tells Rust to reveal the window after first paint"
+commands.allow = ["app_ready"]
+
+[[permission]]
+identifier = "bw-allow-vmq-public-config"
+description = "Allow vmq_public_config: read the public Vmq config (no appSecret)"
+commands.allow = ["vmq_public_config"]
+
+[[permission]]
+identifier = "bw-allow-vmq-sign"
+description = "Allow vmq_sign: sign Vmq requests on the Rust side (appSecret never leaves Rust)"
+commands.allow = ["vmq_sign"]
+
+[[permission]]
+identifier = "bw-allow-vmq-proxy"
+description = "Allow vmq_proxy: Rust-side HTTP forwarding for Vmq API (bypasses WebView CORS)"
+commands.allow = ["vmq_proxy"]
+
+[[permission]]
+identifier = "bw-allow-save-text-file"
+description = "Allow save_text_file: write an exported text file (CSV / backup / GEDCOM) to the Downloads folder"
+commands.allow = ["save_text_file"]
+
+[[permission]]
+identifier = "bw-allow-save-binary-file"
+description = "Allow save_binary_file: write an exported binary file (lineage chart PNG) to the Downloads folder"
+commands.allow = ["save_binary_file"]
+
+[[permission]]
+identifier = "bw-allow-license-save"
+description = "Allow license_save: persist the paid license bound to this machine"
+commands.allow = ["license_save"]
+
+[[permission]]
+identifier = "bw-allow-license-load"
+description = "Allow license_load: restore the license state on startup"
+commands.allow = ["license_load"]
+
+[[permission]]
+identifier = "bw-allow-license-clear"
+description = "Allow license_clear: drop the stored license"
+commands.allow = ["license_clear"]
+
+[[permission]]
+identifier = "bw-allow-window-save-state"
+description = "Allow window_save_state: remember window position and size"
+commands.allow = ["window_save_state"]
+
+[[permission]]
+identifier = "bw-allow-window-load-state"
+description = "Allow window_load_state: restore window position and size"
+commands.allow = ["window_load_state"]
+
+[[permission]]
+identifier = "bw-allow-settings-save"
+description = "Allow settings_save: persist close behavior"
+commands.allow = ["settings_save"]
+
+[[permission]]
+identifier = "bw-allow-settings-load"
+description = "Allow settings_load: restore close behavior"
+commands.allow = ["settings_load"]
+
+[[permission]]
+identifier = "bw-allow-set-app-locale"
+description = "Allow set_app_locale: rebuild the tray menu in the current UI language"
+commands.allow = ["set_app_locale"]

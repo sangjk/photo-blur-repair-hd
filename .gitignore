@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-ssr
+dist_bak_*
+target
+.vite
+.npm-cache
+*.local
+.DS_Store
+src-tauri/gen
+src-tauri/target
+.workbuddy/
