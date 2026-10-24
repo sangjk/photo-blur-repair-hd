@@ -274,7 +274,7 @@ async function exportOne(item: ImgItem, targetPath?: string): Promise<boolean> {
     if (isTauri()) {
       const ext =
         options.format === 'image/png' ? 'png' : options.format === 'image/webp' ? 'webp' : 'jpg'
-      let chosen = targetPath
+      let chosen: string | null = targetPath ?? null
       if (!chosen) {
         chosen = await saveDialog(name, [{ name: t('repair.imgFilter'), extensions: [ext] }])
         if (!chosen) {
