@@ -237,6 +237,19 @@ fn save_binary_file(file_name: String, base64: String, app: tauri::AppHandle) ->
     Ok(path.to_string_lossy().to_string())
 }
 
+/// 导出到用户通过保存对话框选择的完整路径（含文件名）。
+/// 与 save_binary_file 的区别：路径由前端经 dialog 插件取得，不再写死「下载」目录。
+#[tauri::command]
+fn save_binary_file_to(file_path: String, base64: String) -> Result<String, String> {
+    let bytes = b64_decode(&base64)?;
+    let path = PathBuf::from(&file_path);
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    fs::write(&path, &bytes).map_err(|e| format!("保存失败: {e}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 // ── 授权凭证 ─────────────────────────────────────────────────────────────
 // camelCase 输出（orderId/createdAt），alias 兼容旧 snake_case 落盘文件
 #[derive(Serialize, Deserialize, Clone)]
@@ -468,6 +481,8 @@ pub fn run() {
                 let _ = w.set_focus();
             }
         }))
+        // 系统保存对话框：导出时让用户选择保存位置（不写死下载目录）
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // 1) 启动恢复窗口位置/尺寸（Tauri 2 用 maximize()/unmaximize()，无 set_maximized）
             if let Some(win) = app.get_webview_window("main") {
@@ -506,6 +521,7 @@ pub fn run() {
             vmq_proxy,
             save_text_file,
             save_binary_file,
+            save_binary_file_to,
             license_save,
             license_load,
             license_clear,

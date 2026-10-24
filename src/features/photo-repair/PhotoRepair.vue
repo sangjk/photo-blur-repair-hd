@@ -7,7 +7,7 @@
  * ========================================================================== */
 import { ref, reactive, computed, onMounted, onBeforeUnmount, inject, type Ref } from 'vue'
 import { t } from '../../i18n'
-import { saveBinaryFile, isTauri } from '../../tauri'
+import { saveBinaryFileTo, saveDialog, isTauri } from '../../tauri'
 import {
   enhanceImage,
   computeOutputSize,
@@ -29,6 +29,7 @@ interface ImgItem {
   height: number
   orig: ImageBuffer
   thumbUrl: string
+  origUrl: string
   blur: number
   status: ItemStatus
   enhancedUrl: string
@@ -59,6 +60,21 @@ const progress = reactive({ cur: 0, total: 0 })
 const exportMsg = ref('')
 const exportedCount = ref(0)
 const comparePos = ref(50)
+const zoom = ref(1)
+function zoomIn(): void {
+  zoom.value = Math.min(5, Math.round((zoom.value + 0.2) * 10) / 10)
+}
+function zoomOut(): void {
+  zoom.value = Math.max(0.2, Math.round((zoom.value - 0.2) * 10) / 10)
+}
+function zoomReset(): void {
+  zoom.value = 1
+}
+function onWheel(e: WheelEvent): void {
+  e.preventDefault()
+  if (e.deltaY < 0) zoomIn()
+  else zoomOut()
+}
 const dragOver = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 
@@ -111,6 +127,21 @@ async function handleFiles(fileList: FileList | File[]): Promise<void> {
       if (!tctx) continue
       tctx.drawImage(bitmap, 0, 0, tw, th)
       const thumbUrl = tcanvas.toDataURL('image/png')
+      // 全分辨率原图预览（长边限 2000，避免超大图预览卡顿；透明 PNG 填白底防黑块）
+      const oScale = Math.min(1, 2000 / Math.max(w, h))
+      const ow = Math.max(1, Math.round(w * oScale))
+      const oh = Math.max(1, Math.round(h * oScale))
+      const ocanvas = document.createElement('canvas')
+      ocanvas.width = ow
+      ocanvas.height = oh
+      const octx = ocanvas.getContext('2d')
+      let origUrl = thumbUrl
+      if (octx) {
+        octx.fillStyle = '#ffffff'
+        octx.fillRect(0, 0, ow, oh)
+        octx.drawImage(bitmap, 0, 0, ow, oh)
+        origUrl = ocanvas.toDataURL('image/jpeg', 0.9)
+      }
       items.value.push({
         id: nextId++,
         name: file.name,
@@ -119,6 +150,7 @@ async function handleFiles(fileList: FileList | File[]): Promise<void> {
         height: h,
         orig: { data: imageData.data, width: w, height: h },
         thumbUrl,
+        origUrl,
         blur,
         status: 'pending',
         enhancedUrl: '',
@@ -149,6 +181,9 @@ async function processItem(item: ImgItem): Promise<void> {
     out.height = oh
     const octx = out.getContext('2d')
     if (!octx) throw new Error('no ctx')
+    // 先铺白底，确保导出图始终不透明（杜绝透明像素在 JPEG 下变黑，含透明 PNG 边缘）
+    octx.fillStyle = '#ffffff'
+    octx.fillRect(0, 0, ow, oh)
     octx.imageSmoothingEnabled = true
     octx.imageSmoothingQuality = 'high'
     octx.drawImage(tmp, 0, 0, ow, oh)
@@ -218,7 +253,11 @@ async function blobToBase64(blob: Blob): Promise<string> {
   return btoa(bin)
 }
 
-async function exportItem(item: ImgItem): Promise<boolean> {
+/**
+ * 导出单张：Tauri 下弹出保存对话框让用户选择位置；传入 targetPath 时直接写入（批量复用目录用）。
+ * 返回是否成功。
+ */
+async function exportOne(item: ImgItem, targetPath?: string): Promise<boolean> {
   if (!item.enhancedBlob) await processItem(item)
   if (!item.enhancedBlob) {
     exportMsg.value = t('repair.exportFail', { msg: item.errorMsg || 'no blob' })
@@ -233,9 +272,20 @@ async function exportItem(item: ImgItem): Promise<boolean> {
   const name = fileNameFor(item)
   try {
     if (isTauri()) {
+      const ext =
+        options.format === 'image/png' ? 'png' : options.format === 'image/webp' ? 'webp' : 'jpg'
+      let chosen = targetPath
+      if (!chosen) {
+        chosen = await saveDialog(name, [{ name: t('repair.imgFilter'), extensions: [ext] }])
+        if (!chosen) {
+          exportMsg.value = t('repair.exportCancel')
+          return false
+        }
+      }
       const b64 = await blobToBase64(item.enhancedBlob)
-      const path = await saveBinaryFile(name, b64)
+      const path = await saveBinaryFileTo(chosen, b64)
       if (!path) throw new Error('save failed')
+      exportMsg.value = t('repair.exportOkPath', { path })
     } else {
       const url = URL.createObjectURL(item.enhancedBlob)
       const a = document.createElement('a')
@@ -243,9 +293,9 @@ async function exportItem(item: ImgItem): Promise<boolean> {
       a.download = name
       a.click()
       setTimeout(() => URL.revokeObjectURL(url), 1000)
+      exportMsg.value = t('repair.exportOkPath', { path: name })
     }
     exportedCount.value++
-    exportMsg.value = t('repair.exportOk', { n: 1 })
     return true
   } catch (e) {
     exportMsg.value = t('repair.exportFail', { msg: e instanceof Error ? e.message : String(e) })
@@ -259,7 +309,7 @@ async function exportSelected(): Promise<void> {
     exportMsg.value = t('repair.noSelect')
     return
   }
-  await exportItem(sel)
+  await exportOne(sel)
 }
 
 async function exportAll(): Promise<void> {
@@ -268,6 +318,18 @@ async function exportAll(): Promise<void> {
     exportMsg.value = t('repair.allDone')
     return
   }
+  // 批量导出：仅弹一次对话框选择输出目录（取其父目录），全部文件写入该目录，避免逐张弹窗
+  let baseDir: string | null = null
+  if (isTauri()) {
+    const probe = await saveDialog(fileNameFor(done[0]), [
+      { name: t('repair.imgFilter'), extensions: ['jpg', 'png', 'webp'] },
+    ])
+    if (!probe) {
+      exportMsg.value = t('repair.exportCancel')
+      return
+    }
+    baseDir = probe.replace(/[\\/][^\\/]*$/, '')
+  }
   let ok = 0
   for (const it of done) {
     if (!(unlocked?.value ?? false) && exportedCount.value >= 3) {
@@ -275,7 +337,8 @@ async function exportAll(): Promise<void> {
       openPay?.()
       break
     }
-    if (await exportItem(it)) ok++
+    const target = baseDir ? `${baseDir}/${fileNameFor(it)}` : undefined
+    if (await exportOne(it, target)) ok++
   }
   exportMsg.value = t('repair.exportOk', { n: ok })
 }
@@ -453,15 +516,18 @@ function onDrop(e: DragEvent): void {
         <div class="flex-1 p-3 flex flex-col min-h-0">
           <div
             class="relative w-full flex-1 bg-slate-100 dark:bg-slate-800 rounded-md overflow-hidden flex items-center justify-center"
+            @wheel.prevent="onWheel"
           >
             <template v-if="selected">
-              <img :src="selected.thumbUrl" class="absolute max-w-full max-h-full object-contain" />
-              <img
-                v-if="selected.enhancedUrl"
-                :src="selected.enhancedUrl"
-                class="absolute max-w-full max-h-full object-contain"
-                :style="{ clipPath: `inset(0 ${100 - comparePos}% 0 0)` }"
-              />
+              <div class="preview-stage" :style="{ transform: `scale(${zoom})` }">
+                <img v-if="selected.origUrl" :src="selected.origUrl" class="preview-img" />
+                <img
+                  v-if="selected.enhancedUrl"
+                  :src="selected.enhancedUrl"
+                  class="preview-img"
+                  :style="{ clipPath: `inset(0 ${100 - comparePos}% 0 0)` }"
+                />
+              </div>
               <div class="absolute bottom-2 left-2 text-[11px] px-2 py-0.5 rounded bg-black/55 text-white">
                 {{ t('repair.previewNew') }}
               </div>
@@ -470,6 +536,30 @@ function onDrop(e: DragEvent): void {
               </div>
             </template>
             <div v-else class="text-[12px] text-slate-400">{{ t('repair.empty') }}</div>
+          </div>
+          <div v-if="selected" class="flex items-center gap-2 mt-2">
+            <button
+              class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-[13px] leading-none"
+              :title="t('repair.zoomOut')"
+              @click="zoomOut"
+            >
+              −
+            </button>
+            <span class="text-[11px] w-12 text-center tabular-nums">{{ Math.round(zoom * 100) }}%</span>
+            <button
+              class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-[13px] leading-none"
+              :title="t('repair.zoomIn')"
+              @click="zoomIn"
+            >
+              +
+            </button>
+            <button
+              class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-[11px]"
+              @click="zoomReset"
+            >
+              {{ t('repair.fit') }}
+            </button>
+            <span class="text-[10px] text-slate-400 ml-1">{{ t('repair.zoomHint') }}</span>
           </div>
           <input
             v-if="selected"
@@ -570,3 +660,23 @@ function onDrop(e: DragEvent): void {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 预览舞台：整块缩放，原图/修复后两层叠合，缩放时始终居中 */
+.preview-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-origin: center center;
+}
+.preview-img {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+</style>

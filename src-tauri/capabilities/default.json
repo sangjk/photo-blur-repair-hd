@@ -19,6 +19,8 @@
     "bw-allow-vmq-proxy",
     "bw-allow-save-text-file",
     "bw-allow-save-binary-file",
+    "bw-allow-save-binary-file-to",
+    "dialog:allow-save",
     "bw-allow-license-save",
     "bw-allow-license-load",
     "bw-allow-license-clear",

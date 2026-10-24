@@ -45,6 +45,11 @@ description = "Allow save_binary_file: write an exported binary file (lineage ch
 commands.allow = ["save_binary_file"]
 
 [[permission]]
+identifier = "bw-allow-save-binary-file-to"
+description = "Allow save_binary_file_to: write an exported binary file to a user-chosen path (returned by the save dialog)"
+commands.allow = ["save_binary_file_to"]
+
+[[permission]]
 identifier = "bw-allow-license-save"
 description = "Allow license_save: persist the paid license bound to this machine"
 commands.allow = ["license_save"]

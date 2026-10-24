@@ -122,13 +122,34 @@ export function appReady() {
   return invokeSafe('app_ready')
 }
 
-// ── 导出落盘：由 Rust 侧写入「下载」目录并返回绝对路径（保证桌面端一定能存下来）──
+// ── 导出落盘：由 Rust 侧写入用户指定路径（保证桌面端一定能存下来，且可选位置）──
 /** 保存 UTF-8 文本文件（CSV / JSON 备份 / GEDCOM），返回保存后的绝对路径 */
 export function saveTextFile(fileName: string, content: string): Promise<string | null> {
   return invokeSafe<string>('save_text_file', { fileName, content })
 }
 
-/** 保存二进制文件（base64 传入，如导出世系图 PNG），返回保存后的绝对路径 */
+/** 保存二进制文件（base64 传入）到「下载」目录，返回保存后的绝对路径（保留以兼容旧调用） */
 export function saveBinaryFile(fileName: string, base64: string): Promise<string | null> {
   return invokeSafe<string>('save_binary_file', { fileName, base64 })
+}
+
+/** 系统保存对话框：返回用户选择的完整路径（含文件名），取消则返回 null */
+export interface DialogFilter {
+  name: string
+  extensions: string[]
+}
+export async function saveDialog(defaultName: string, filters?: DialogFilter[]): Promise<string | null> {
+  if (!isTauri()) return null
+  try {
+    const { save } = await import('@tauri-apps/plugin-dialog')
+    return await save({ defaultPath: defaultName, filters })
+  } catch (e) {
+    if (import.meta.env.DEV) console.warn('[tauri] saveDialog 失败:', e)
+    return null
+  }
+}
+
+/** 保存到用户指定的完整路径（由 saveDialog 返回），返回保存后的绝对路径 */
+export function saveBinaryFileTo(filePath: string, base64: string): Promise<string | null> {
+  return invokeSafe<string>('save_binary_file_to', { filePath, base64 })
 }

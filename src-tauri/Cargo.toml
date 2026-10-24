@@ -24,6 +24,8 @@ uuid = { version = "1", features = ["v4"] }
 # V免签 API 转发：支付下单/查询/关闭改为由 Rust 侧发起，绕过 WebView/浏览器 CORS 限制。
 # default-features = false + default-tls：不引入 native-tls（否则 Windows 上会链接失败/体积膨胀）
 reqwest = { version = "0.12", default-features = false, features = ["default-tls"] }
+# 系统保存对话框：导出时让用户选择保存位置（不写死下载目录）
+tauri-plugin-dialog = "2"
 
 # Release：更小体积 + 更快启动（Tauri 桌面应用通用优化）
 [profile.release]

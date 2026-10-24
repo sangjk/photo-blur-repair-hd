@@ -94,6 +94,8 @@ function boxPass(
       }
     }
   }
+  // 保留 alpha 通道：否则透明像素经模糊后 alpha 归零 → 整图透明 → 导出 JPEG 变黑
+  for (let i = 3; i < out.length; i += 4) out[i] = src[i]
   return out
 }
 
