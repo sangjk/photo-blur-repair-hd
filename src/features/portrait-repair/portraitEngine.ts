@@ -3003,17 +3003,6 @@ function aiArtifactRatio(
   return fake / flat
 }
 
-/** 眼区"特征复制"计数（重影）：处理后比处理前多出的暗特征块数 */
-function ghostEdges(
-  before: Uint8ClampedArray,
-  after: Uint8ClampedArray,
-  w: number,
-  h: number,
-  faces: FaceBox[],
-): number {
-  return ghostFeatures(before, after, w, h, faces)
-}
-
 /**
  * 眼部区域内的暗色连通块数量。
  *
