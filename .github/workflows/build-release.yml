@@ -32,7 +32,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - name: 安装前端依赖
-        run: npm ci
+        run: npm install
       - name: 前端校验（typecheck + i18n）
         run: npm run preflight
 
@@ -49,7 +49,7 @@ jobs:
           cache: 'npm'
 
       - name: 安装前端依赖
-        run: npm ci
+        run: npm install
 
       # 图标生成：本地只复制 app-icon.png（纯文件操作），全套图标在这里生成
       - name: 生成图标（如提供 app-icon.png）
