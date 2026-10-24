@@ -181,9 +181,9 @@ export const enUS: Record<string, string> = {
   'portrait.tabGeneral': 'General Repair',
   'portrait.tabPortrait': 'Portrait Ultra-HD',
   'portrait.title': 'Portrait Ultra-HD Repair',
-  'portrait.subtitle': 'Turn blurry portraits sharp in one click — HD, 2K, 4K and 5K output',
-  'portrait.upload': 'Upload Portrait',
-  'portrait.process': 'Start Ultra-HD Repair',
+  'portrait.subtitle': 'Restore old or blurry portraits to a camera-like, natural look',
+  'portrait.upload': 'Add Portrait',
+  'portrait.process': 'Start Repair',
   'portrait.compare': 'Before / After',
   'portrait.export': 'Export',
   'portrait.processAll': 'Repair All',
@@ -201,35 +201,92 @@ export const enUS: Record<string, string> = {
   'portrait.zoomOut': 'Zoom Out',
   'portrait.fit': 'Fit',
   'portrait.zoomHint': 'Scroll to zoom; stays sharp when zooming in or out',
-  'portrait.strength': 'Clarity Strength',
+
+  // Repair mode (4 levels)
+  'portrait.mode': 'Repair Mode',
   'portrait.strength.natural': 'Natural HD',
   'portrait.strength.ultra': 'Ultra Portrait',
   'portrait.strength.extreme': 'Maximum Detail',
-  'portrait.strengthNote': 'Default is "Ultra Portrait"; "Maximum Detail" boosts eyes, lashes, lips, hair and contours',
+  'portrait.strength.camera': 'Camera Realism',
+  'portrait.modeNote': '"Camera Realism" sharpens the least and is only offered for mildly blurred, already-sharp sources — the closest to a phone camera look',
+  'portrait.modeLocked': 'Source graded "{grade}" — not enough real detail for Camera Realism, processed as "Ultra Portrait"',
+
+  // Clarity strength
+  'portrait.clarity': 'Clarity Strength',
+  'portrait.clarityNote': '100 is this mode default; lower stays closer to the source, higher is sharper (max 120)',
+
+  // Realism
+  'portrait.realism': 'Realism Level',
+  'portrait.realism.low': 'Low',
+  'portrait.realism.mid': 'Mid',
+  'portrait.realism.high': 'High',
+  'portrait.realismNote': 'Recovers highlight and shadow detail, fixes color cast, suppresses fake texture; higher means more lifelike light',
+
+  // Skin texture
   'portrait.skin': 'Skin Texture',
   'portrait.skin.keep': 'Keep Texture',
   'portrait.skin.balanced': 'Balanced',
   'portrait.skin.smooth': 'Smoother',
-  'portrait.skinNote': 'Keeps pores and real skin tone, no plastic look; smoother means less texture',
+  'portrait.skinNote': 'Pores and real skin detail are always kept — smoothing has a hard cap, never a plastic face',
+
+  // Defect repair
+  'portrait.defect': 'Scratch Repair',
+  'portrait.defect.off': 'Off',
+  'portrait.defect.auto': 'Auto',
+  'portrait.defect.strong': 'Strong',
+  'portrait.defectNote': 'Removes scratches / creases / stains / dust / JPEG blocks before deblurring and enhancement',
+
+  // Output size
   'portrait.output': 'Output Size',
   'portrait.output.hd': 'HD',
   'portrait.output.uhd': '2K',
   'portrait.output.4k': '4K',
   'portrait.output.5k': '5K',
-  'portrait.outputNote': 'Keeps the original aspect ratio, never stretched; keeps original resolution when larger',
-  'portrait.format': 'Format',
-  'portrait.qualityLabel': 'Quality',
-  'portrait.quality': 'Quality Check',
-  'portrait.qualityOk': 'Quality check passed: no fake-face look, waxiness or ghosting',
+  'portrait.outputNote': 'Keeps the original aspect ratio — never stretched, distorted or cropped; keeps original resolution when larger',
+
+  // Output format
+  'portrait.format': 'Output Format',
+  'portrait.format.jpg': 'JPG · max quality 100%',
+  'portrait.format.png': 'PNG · lossless',
+  'portrait.formatNote': 'No quality compression — a single file may be tens of MB, and that is intentional',
+
+  // Input grading
+  'portrait.grade': 'Source Grade',
+  'portrait.grade.mild': 'Mildly blurry',
+  'portrait.grade.moderate': 'Moderately blurry',
+  'portrait.grade.severe': 'Severely blurry',
+  'portrait.grade.extreme': 'Very poor',
+  'portrait.promise.mild': 'Result can look close to a camera photo',
+  'portrait.promise.moderate': 'Clean and natural; some detail is algorithmically rebuilt',
+  'portrait.promise.severe': 'Improves readability only; detail recovery has a physical limit',
+  'portrait.promise.extreme': 'Limited repair only — do not expect full restoration',
+  'portrait.gradeDetail': 'Sharpness {sharp} · Blockiness {block} · Defects {defect}',
+
+  // Automatic quality checks (11)
+  'portrait.quality': 'Auto Quality Check',
+  'portrait.qualityOk': 'All checks passed: no plastic / wax / over-smoothing / halo / glow / ghosting / distortion / color cast / AI artifact / seam',
+  'portrait.qc.halo': 'Sharpening halo',
+  'portrait.qc.glow': 'Glow',
+  'portrait.qc.plastic': 'Plastic skin',
+  'portrait.qc.wax': 'Wax figure',
+  'portrait.qc.overSmooth': 'Over-smoothed',
+  'portrait.qc.ghost': 'Ghosting',
+  'portrait.qc.deform': 'Feature distortion',
+  'portrait.qc.skinTone': 'Skin tone shift',
+  'portrait.qc.aiArtifact': 'AI artifact',
+  'portrait.qc.seam': 'Seam',
+  'portrait.qc.lowGain': 'Limited clarity gain',
+  'portrait.qcPass': 'Pass',
+  'portrait.qcFail': 'Issue',
+
   'portrait.clarityBefore': 'Original clarity {n}',
   'portrait.clarityAfter': 'Repaired clarity {n}',
-  'portrait.issueHalo': 'Sharpening halo detected — automatically retried with lower strength',
-  'portrait.issuePlastic': 'Skin texture flattened — automatically retried with lower strength',
-  'portrait.issueGhost': 'Edge ghosting detected — automatically retried with lower strength',
-  'portrait.issueLowGain': 'The source has too little real detail; clarity gain is physically limited',
-  'portrait.retryApplied': 'Automatically retried once at lower strength (avoids fake-face / waxiness / ghosting)',
+  'portrait.retryApplied': 'Issues detected — automatically retried once at lower strength',
+  'portrait.fallbackApplied': 'Not enough real detail in the source — conservative repair applied',
+  'portrait.sizeInfo': 'Output {w}×{h} · {size}',
+  'portrait.noOverwrite': 'Your original is never overwritten: exports get a timestamp and are saved as new files',
   'portrait.limitHint':
-    'Detail recovery for severely blurred portraits has an upper limit — "Ultra Portrait" or "Maximum Detail" is recommended. 4K/5K is the output resolution; it cannot invent detail that was never captured. Severely out-of-focus, heavily compressed or heavily occluded portraits cannot be fully restored.',
+    'For portraits that are severely blurred, out of focus, heavily compressed or largely occluded, detail recovery has a physical limit. 4K / 5K is the output resolution — it cannot invent detail that was never captured. This feature never swaps faces or distorts features.',
   'portrait.unlockHint': 'Unlock for unlimited exports',
   'portrait.freeUsed': 'Free quota: {used} / 3 used',
   'portrait.freeReached': 'Free quota reached. Unlock to export more',
@@ -254,6 +311,8 @@ export const enUS: Record<string, string> = {
     'Fixed the case where the repaired photo looked blurrier than the original — no more downscaling, sharpening based on the original detail layer, soft-threshold denoise.',
   'release.v103':
     'New Portrait Ultra-HD Repair: face-specific enhancement (features / hair / skin / lips / contours), local super-resolution for face regions, automatic lower-strength retry on quality defects, with HD / 2K / 4K / 5K output.',
+  'release.v104':
+    'Portrait repair rebuilt as a five-stage pipeline (scratch repair, deblur, face-specific, super-resolution, realism): per-face enhancement of eyes, iris, lashes, brows, nose wings, lips and teeth, hair, skin and contours. New "Camera Realism" mode plus adjustable clarity, realism and scratch-repair strength. JPG at a constant 100% quality and lossless PNG output. 11 automatic quality checks with lower-strength retry and a conservative fallback.',
 }
 
 export default enUS

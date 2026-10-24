@@ -191,15 +191,15 @@ export const zhCN: Record<string, string> = {
   'portrait.tabGeneral': '通用修复',
   'portrait.tabPortrait': '人像超清修复',
   'portrait.title': '人像超清修复',
-  'portrait.subtitle': '模糊人像一键变清晰，支持超清、4K、5K输出',
-  'portrait.upload': '上传人像',
-  'portrait.process': '开始超清修复',
+  'portrait.subtitle': '老照片 / 模糊人像修复，观感接近相机直出',
+  'portrait.upload': '添加人像',
+  'portrait.process': '开始修复',
   'portrait.compare': '前后对比',
   'portrait.export': '导出',
   'portrait.processAll': '修复全部',
   'portrait.exportAll': '导出全部',
   'portrait.clear': '清空列表',
-  'portrait.dropHint': '拖拽人像到此处，或点击选择（支持 JPG / JPEG / PNG / WEBP）',
+  'portrait.dropHint': '拖拽人像到此处，或点击选择（JPG / JPEG / PNG / WEBP）',
   'portrait.fileList': '人像列表',
   'portrait.empty': '尚未添加人像',
   'portrait.facesFound': '检测到 {n} 张人脸',
@@ -211,35 +211,92 @@ export const zhCN: Record<string, string> = {
   'portrait.zoomOut': '缩小',
   'portrait.fit': '适应',
   'portrait.zoomHint': '滚轮缩放，放大缩小均保持清晰',
-  'portrait.strength': '清晰强度',
+
+  // 修复模式（4 档）
+  'portrait.mode': '修复模式',
   'portrait.strength.natural': '自然高清',
   'portrait.strength.ultra': '超清人像',
   'portrait.strength.extreme': '极致清晰',
-  'portrait.strengthNote': '默认「超清人像」；「极致清晰」重点强化眼睛、睫毛、嘴唇、发丝与轮廓',
+  'portrait.strength.camera': '相机真实感',
+  'portrait.modeNote': '「相机真实感」锐化最轻、只给轻度模糊的清晰原图，观感最接近手机直出',
+  'portrait.modeLocked': '原图分级为「{grade}」，细节不足以支撑相机真实感模式，本次按「超清人像」处理',
+
+  // 清晰强度
+  'portrait.clarity': '清晰强度',
+  'portrait.clarityNote': '100 为该模式默认力度；调低更接近原片，调高更锐利（上限 120）',
+
+  // 真实感强度
+  'portrait.realism': '真实感强度',
+  'portrait.realism.low': '低',
+  'portrait.realism.mid': '中',
+  'portrait.realism.high': '高',
+  'portrait.realismNote': '回收高光与阴影细节、校正偏色、压制假纹理；越高光影越接近真实',
+
+  // 皮肤质感
   'portrait.skin': '皮肤质感',
   'portrait.skin.keep': '保留纹理',
   'portrait.skin.balanced': '平衡',
   'portrait.skin.smooth': '更平滑',
-  'portrait.skinNote': '保留毛孔与肤质，不做塑料磨皮；越平滑纹理越少',
+  'portrait.skinNote': '毛孔与真实肤质始终保留，磨皮设硬上限，不做塑料脸',
+
+  // 划痕修复
+  'portrait.defect': '划痕修复',
+  'portrait.defect.off': '关闭',
+  'portrait.defect.auto': '自动',
+  'portrait.defect.strong': '强力',
+  'portrait.defectNote': '先修划痕 / 折痕 / 污渍 / 尘点 / 压缩块，再去做模糊与增强',
+
+  // 输出档位
   'portrait.output': '输出档位',
   'portrait.output.hd': '高清',
   'portrait.output.uhd': '超清',
   'portrait.output.4k': '4K',
   'portrait.output.5k': '5K',
-  'portrait.outputNote': '按原比例输出，绝不拉伸；原图更大时保持原分辨率',
-  'portrait.format': '格式',
-  'portrait.qualityLabel': '质量',
-  'portrait.quality': '质量检测',
-  'portrait.qualityOk': '质量检测通过：未发现假面、塑料感或重影',
+  'portrait.outputNote': '按原比例输出，不拉伸、不变形、不裁切；原图更大时保持原分辨率',
+
+  // 输出格式
+  'portrait.format': '输出格式',
+  'portrait.format.jpg': 'JPG · 最高质量 100%',
+  'portrait.format.png': 'PNG · 无损',
+  'portrait.formatNote': '不压缩画质，单个文件可能有几十 MB，这是刻意保留的',
+
+  // 输入分级
+  'portrait.grade': '原图分级',
+  'portrait.grade.mild': '轻度模糊',
+  'portrait.grade.moderate': '中度模糊',
+  'portrait.grade.severe': '重度模糊',
+  'portrait.grade.extreme': '极差',
+  'portrait.promise.mild': '修复后观感可接近相机直出',
+  'portrait.promise.moderate': '超清自然，部分细节由算法重建',
+  'portrait.promise.severe': '只改善可读性，细节恢复有物理上限',
+  'portrait.promise.extreme': '仅有限修复，请勿预期完整还原',
+  'portrait.gradeDetail': '锐度 {sharp} · 压缩块 {block} · 缺陷 {defect}',
+
+  // 自动质检（11 项）
+  'portrait.quality': '自动质检',
+  'portrait.qualityOk': '全部通过：无塑料感 / 蜡像感 / 过度磨皮 / 白边 / 光晕 / 重影 / 变形 / 偏色 / 伪影 / 拼接痕',
+  'portrait.qc.halo': '锐化白边',
+  'portrait.qc.glow': '光晕',
+  'portrait.qc.plastic': '塑料感',
+  'portrait.qc.wax': '蜡像感',
+  'portrait.qc.overSmooth': '过度磨皮',
+  'portrait.qc.ghost': '重影',
+  'portrait.qc.deform': '五官变形',
+  'portrait.qc.skinTone': '肤色偏移',
+  'portrait.qc.aiArtifact': 'AI 伪影',
+  'portrait.qc.seam': '拼接痕',
+  'portrait.qc.lowGain': '清晰度提升有限',
+  'portrait.qcPass': '通过',
+  'portrait.qcFail': '异常',
+
   'portrait.clarityBefore': '原图清晰度 {n}',
   'portrait.clarityAfter': '修复后清晰度 {n}',
-  'portrait.issueHalo': '检测到锐化白边，已自动降强度重试',
-  'portrait.issuePlastic': '检测到皮肤质感过平，已自动降强度重试',
-  'portrait.issueGhost': '检测到边缘重影，已自动降强度重试',
-  'portrait.issueLowGain': '原图细节过少，清晰度提升存在物理上限',
-  'portrait.retryApplied': '已自动降强度重试一次（避免假面 / 塑料感 / 重影）',
+  'portrait.retryApplied': '检出异常，已自动降强度重试一次',
+  'portrait.fallbackApplied': '原图细节不足，已采用保守修复',
+  'portrait.sizeInfo': '输出 {w}×{h} · {size}',
+  'portrait.noOverwrite': '原图不会被覆盖：导出自动加时间戳另存为新文件',
   'portrait.limitHint':
-    '严重模糊人像的细节恢复有上限，建议选择「超清人像」或「极致清晰」。4K/5K 是输出分辨率，不等于凭空恢复原图不存在的真实细节；严重失焦、严重压缩、大面积遮挡的人像无法完全还原。',
+    '严重模糊、严重失焦、严重压缩或大面积遮挡的人像，细节恢复存在物理上限。4K / 5K 是输出分辨率，不等于凭空恢复原图不存在的真实细节；本功能不做换脸、不做五官变形。',
   'portrait.unlockHint': '解锁后畅享无限导出',
   'portrait.freeUsed': '免费额度：已用 {used} / 3 张',
   'portrait.freeReached': '已达免费额度，解锁后可继续导出',
@@ -263,6 +320,8 @@ export const zhCN: Record<string, string> = {
   'release.v102': '修复「修复后比原图更糊」：输出不再降采样、锐化以原图为基准、降噪改软阈值。',
   'release.v103':
     '新增人像超清修复：人脸专项增强（五官 / 发丝 / 皮肤 / 唇齿 / 轮廓）、人脸区域局部超分、质量检测异常自动降强度重试，支持高清 / 超清 / 4K / 5K 输出。',
+  'release.v104':
+    '人像超清修复按「划痕修复 → 去模糊 → 人脸专项 → 超分放大 → 真实感校正」五段式重建：逐脸增强眼睛 / 虹膜 / 睫毛 / 眉毛 / 鼻翼 / 唇齿 / 发丝 / 皮肤与轮廓；新增「相机真实感」模式与清晰强度、真实感强度、划痕修复强度可调；JPG 恒定 100% 质量、PNG 无损输出；新增 11 项自动质检，不合格自动降强度重试并给出保守修复。',
 }
 
 export default zhCN
