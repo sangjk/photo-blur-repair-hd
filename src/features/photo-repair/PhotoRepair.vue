@@ -13,6 +13,7 @@ import {
   computeOutputSize,
   clarityScore,
   unsharp,
+  flattenOnWhite,
   RES_PRESETS,
   FORMATS,
   type EnhanceOptions,
@@ -31,6 +32,7 @@ interface ImgItem {
   thumbUrl: string
   origUrl: string
   blur: number
+  sharpAfter: number
   status: ItemStatus
   enhancedUrl: string
   enhancedBlob: Blob | null
@@ -44,11 +46,11 @@ const options = reactive<EnhanceOptions>({
   denoise: true,
   denoiseStrength: 45,
   deblur: true,
-  deblurAmount: 55,
+  deblurAmount: 45,
   enhance: true,
-  enhanceAmount: 50,
+  enhanceAmount: 35,
   texture: true,
-  textureAmount: 40,
+  textureAmount: 25,
   targetLongEdge: 1920,
   format: 'image/jpeg',
   quality: 0.92,
@@ -127,8 +129,9 @@ async function handleFiles(fileList: FileList | File[]): Promise<void> {
       if (!tctx) continue
       tctx.drawImage(bitmap, 0, 0, tw, th)
       const thumbUrl = tcanvas.toDataURL('image/png')
-      // 全分辨率原图预览（长边限 2000，避免超大图预览卡顿；透明 PNG 填白底防黑块）
-      const oScale = Math.min(1, 2000 / Math.max(w, h))
+      // 全分辨率原图预览（长边限 4096，与导出分辨率对齐，保证对比滑动条是 1:1 像素比较；
+      // 透明 PNG 填白底防黑块）
+      const oScale = Math.min(1, 4096 / Math.max(w, h))
       const ow = Math.max(1, Math.round(w * oScale))
       const oh = Math.max(1, Math.round(h * oScale))
       const ocanvas = document.createElement('canvas')
@@ -140,7 +143,7 @@ async function handleFiles(fileList: FileList | File[]): Promise<void> {
         octx.fillStyle = '#ffffff'
         octx.fillRect(0, 0, ow, oh)
         octx.drawImage(bitmap, 0, 0, ow, oh)
-        origUrl = ocanvas.toDataURL('image/jpeg', 0.9)
+        origUrl = ocanvas.toDataURL('image/jpeg', 0.95)
       }
       items.value.push({
         id: nextId++,
@@ -152,6 +155,7 @@ async function handleFiles(fileList: FileList | File[]): Promise<void> {
         thumbUrl,
         origUrl,
         blur,
+        sharpAfter: 0,
         status: 'pending',
         enhancedUrl: '',
         enhancedBlob: null,
@@ -169,29 +173,36 @@ async function processItem(item: ImgItem): Promise<void> {
   await new Promise((r) => setTimeout(r, 0))
   try {
     const enhanced = enhanceImage(item.orig.data, item.orig.width, item.orig.height, { ...options })
+    // 修复后清晰度评分（客观反馈：应显著高于原图清晰度）
+    item.sharpAfter = clarityScore(enhanced, item.orig.width, item.orig.height)
     const [ow, oh] = computeOutputSize(item.orig.width, item.orig.height, options.targetLongEdge)
-    const tmp = document.createElement('canvas')
-    tmp.width = item.orig.width
-    tmp.height = item.orig.height
-    const tctx = tmp.getContext('2d')
-    if (!tctx) throw new Error('no ctx')
-    tctx.putImageData(new ImageData(enhanced, item.orig.width, item.orig.height), 0, 0)
     const out = document.createElement('canvas')
     out.width = ow
     out.height = oh
     const octx = out.getContext('2d')
     if (!octx) throw new Error('no ctx')
-    // 先铺白底，确保导出图始终不透明（杜绝透明像素在 JPEG 下变黑，含透明 PNG 边缘）
-    octx.fillStyle = '#ffffff'
-    octx.fillRect(0, 0, ow, oh)
-    octx.imageSmoothingEnabled = true
-    octx.imageSmoothingQuality = 'high'
-    octx.drawImage(tmp, 0, 0, ow, oh)
-    // 放大后轻锐化，恢复清晰度（仅长边大于原图时）
-    if (ow > item.orig.width) {
-      const outData = octx.getImageData(0, 0, ow, oh)
-      const sharp = unsharp(outData.data, ow, oh, 25, 1, 2)
-      octx.putImageData(new ImageData(sharp, ow, oh), 0, 0)
+    if (ow === item.orig.width && oh === item.orig.height) {
+      // 原分辨率直出：putImageData 逐像素写入，不做重采样（杜绝二次插值软化）
+      octx.putImageData(new ImageData(flattenOnWhite(enhanced), ow, oh), 0, 0)
+    } else {
+      // 放大路径：高质量重采样 + 放大后轻锐化
+      const tmp = document.createElement('canvas')
+      tmp.width = item.orig.width
+      tmp.height = item.orig.height
+      const tctx = tmp.getContext('2d')
+      if (!tctx) throw new Error('no ctx')
+      tctx.putImageData(new ImageData(enhanced, item.orig.width, item.orig.height), 0, 0)
+      // 先铺白底，确保导出图始终不透明（杜绝透明像素在 JPEG 下变黑，含透明 PNG 边缘）
+      octx.fillStyle = '#ffffff'
+      octx.fillRect(0, 0, ow, oh)
+      octx.imageSmoothingEnabled = true
+      octx.imageSmoothingQuality = 'high'
+      octx.drawImage(tmp, 0, 0, ow, oh)
+      if (ow > item.orig.width) {
+        const outData = octx.getImageData(0, 0, ow, oh)
+        const sharp = unsharp(outData.data, ow, oh, 40, 1, 2)
+        octx.putImageData(new ImageData(sharp, ow, oh), 0, 0)
+      }
     }
     const blob = await new Promise<Blob | null>((res) =>
       out.toBlob((b) => res(b), options.format, options.quality),
@@ -487,6 +498,12 @@ function onDrop(e: DragEvent): void {
                 {{ it.width }}×{{ it.height }} · {{ t('repair.blur') }} {{ it.blur }}
               </div>
               <div
+                v-if="it.status === 'done' && it.sharpAfter > 0"
+                class="text-[10px] text-emerald-500"
+              >
+                {{ t('repair.sharpAfter', { n: it.sharpAfter }) }}
+              </div>
+              <div
                 class="text-[10px]"
                 :class="{
                   'text-amber-500': it.status === 'pending',
@@ -634,6 +651,7 @@ function onDrop(e: DragEvent): void {
             <select v-model.number="options.targetLongEdge" class="w-full text-[12px] rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-1 py-1">
               <option v-for="p in resOptions" :key="p.key" :value="p.longEdge">{{ p.label }}</option>
             </select>
+            <div class="text-[10px] text-slate-400 mt-1">{{ t('repair.resNote') }}</div>
             <div class="text-[11px] text-slate-400 mt-2 mb-1">{{ t('repair.format') }}</div>
             <select v-model="options.format" class="w-full text-[12px] rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-1 py-1">
               <option v-for="f in FORMATS" :key="f.value" :value="f.value">{{ f.label }}</option>

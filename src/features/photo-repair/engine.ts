@@ -138,6 +138,102 @@ export function unsharp(
   return out
 }
 
+/**
+ * 以「参考图」的高频细节层叠加到当前结果上（非锐化掩模的增强版）。
+ *
+ * 关键点：参考图必须是**原图**。
+ * 传统 unsharp 用当前图算细节层（orig - blur(orig)），一旦前面做过整体模糊（降噪），
+ * 细节层就只剩残余高频，补不回被抹掉的原图细节 —— 结果只会比原图更糊。
+ * 以原图为基准 = 把原图真实细节补回并放大，输出高频恒 ≥ 原图，修复只会更清晰。
+ */
+export function unsharpFrom(
+  base: Uint8ClampedArray,
+  ref: Uint8ClampedArray,
+  w: number,
+  h: number,
+  amount: number,
+  radius: number,
+  threshold: number,
+): Uint8ClampedArray {
+  const amt = amount / 100
+  if (amt <= 0) return base.slice()
+  const blur = gaussianBlur(ref, w, h, Math.max(1, Math.round(radius)))
+  const out = new Uint8ClampedArray(base.length)
+  for (let i = 0; i < base.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const detail = ref[i + c] - blur[i + c]
+      if (Math.abs(detail) < threshold) {
+        out[i + c] = base[i + c]
+      } else {
+        out[i + c] = clamp255(base[i + c] + amt * detail)
+      }
+    }
+    out[i + 3] = base[i + 3]
+  }
+  return out
+}
+
+/**
+ * 智能降噪（细节层软阈值）：用小半径模糊估算局部低频，只压制**小幅**高频（噪点），
+ * 强边缘（结构）基本保留。
+ *
+ * 与「整体高斯模糊」的本质区别：整体模糊会把所有细节（含边缘）一起抹平，
+ * 导致修复结果比原图还糊；软阈值只削掉噪点幅度的成分，空间上不扩散、不糊边缘。
+ */
+export function denoiseSoft(
+  src: Uint8ClampedArray,
+  w: number,
+  h: number,
+  strength: number,
+): Uint8ClampedArray {
+  const low = gaussianBlur(src, w, h, 1)
+  // 噪声阈值：强度越高，判定为「噪点」的幅度门槛越高（1..4 灰阶，贴近真实传感器噪点量级；
+  // 过大会连带削弱低对比纹理，导致画面被"抹平"）
+  const threshold = 1 + (Math.max(0, Math.min(100, strength)) / 100) * 3
+  const out = new Uint8ClampedArray(src.length)
+  for (let i = 0; i < src.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const d = src[i + c] - low[i + c]
+      const a = Math.abs(d)
+      // 软阈值：|d| ≤ threshold 视为噪点直接抑制；超过则保留（仅减去阈值部分）
+      const d2 = a > threshold ? d - (d > 0 ? threshold : -threshold) : 0
+      out[i + c] = clamp255(low[i + c] + d2)
+    }
+    out[i + 3] = src[i + 3]
+  }
+  return out
+}
+
+/**
+ * 把带 alpha 的像素合成到白底上（不透明像素完全不变，仅透明区域变白）。
+ * 用于「原分辨率直出」：JPEG/WEBP 编码会把透明区域压成黑，必须先合成白底。
+ */
+export function flattenOnWhite(src: Uint8ClampedArray): Uint8ClampedArray {
+  let hasAlpha = false
+  for (let i = 3; i < src.length; i += 4) {
+    if (src[i] < 255) {
+      hasAlpha = true
+      break
+    }
+  }
+  if (!hasAlpha) return src
+  const out = new Uint8ClampedArray(src.length)
+  for (let i = 0; i < src.length; i += 4) {
+    const a = src[i + 3] / 255
+    if (a >= 1) {
+      out[i] = src[i]
+      out[i + 1] = src[i + 1]
+      out[i + 2] = src[i + 2]
+    } else {
+      out[i] = src[i] * a + 255 * (1 - a)
+      out[i + 1] = src[i + 1] * a + 255 * (1 - a)
+      out[i + 2] = src[i + 2] * a + 255 * (1 - a)
+    }
+    out[i + 3] = 255
+  }
+  return out
+}
+
 /** 局部对比度增强（以中灰为轴线性拉伸），强化人脸/文字/边缘观感 */
 function localContrast(src: Uint8ClampedArray, amount: number): Uint8ClampedArray {
   const c = 1 + amount / 150 // 1..~1.67
@@ -158,29 +254,43 @@ export function enhanceImage(
   h: number,
   opts: EnhanceOptions,
 ): Uint8ClampedArray {
+  // 原图基准：所有锐化步骤都以「原图」的高频为准绳。
+  // 这样无论先做了多少降噪，补回并放大的都是原图真实细节，
+  // 输出高频恒 ≥ 原图 —— 修复结果只可能更清晰，绝不会比原图更糊。
+  const original = src.slice()
   let img = src.slice()
   if (opts.denoise) {
-    const r = Math.max(1, Math.round(1 + opts.denoiseStrength / 40))
-    img = gaussianBlur(img, w, h, r)
+    // 软阈值降噪：只削噪点，不糊边缘（不再用整体高斯模糊）
+    img = denoiseSoft(img, w, h, opts.denoiseStrength)
   }
   if (opts.deblur) {
-    img = unsharp(img, w, h, opts.deblurAmount, 1.5, 3)
+    // 去模糊：半径 2 覆盖常见模糊核，以原图为基准补回并放大真实细节
+    img = unsharpFrom(img, original, w, h, opts.deblurAmount, 2, 2)
   }
   if (opts.enhance) {
-    img = unsharp(img, w, h, opts.enhanceAmount, 1.2, 4)
-    img = localContrast(img, opts.enhanceAmount * 0.4)
+    // 半径 1：更细的边缘 / 文字 / 五官细节
+    img = unsharpFrom(img, original, w, h, opts.enhanceAmount, 1, 3)
+    img = localContrast(img, opts.enhanceAmount * 0.3)
   }
   if (opts.texture) {
-    img = unsharp(img, w, h, opts.textureAmount * 0.7, 0.8, 1)
+    // 纹理：基于当前结果的微对比（避免与上面重复放大同一频段）
+    img = unsharp(img, w, h, opts.textureAmount * 0.5, 1, 2)
   }
   return img
 }
 
-/** 计算输出尺寸（保持原始宽高比，长边对齐 targetLongEdge，且不超过 8192） */
+/**
+ * 计算输出尺寸（保持原始宽高比）：
+ *  - 原图长边 < targetLong 时放大到 targetLong（超分）
+ *  - 原图长边 ≥ targetLong 时**保持原分辨率**（绝不缩小）
+ *  - 上限 8192（浏览器内存保护）
+ *
+ * 缩小会让「高清修复」适得其反：像素变少 + 重采样软化 = 导出图比原图更糊。
+ */
 export function computeOutputSize(w: number, h: number, targetLong: number): [number, number] {
   const long = Math.max(w, h)
   if (long <= 0) return [w, h]
-  const scale = targetLong / long
+  const scale = long < targetLong ? targetLong / long : 1
   let ow = Math.round(w * scale)
   let oh = Math.round(h * scale)
   const MAX = 8192
