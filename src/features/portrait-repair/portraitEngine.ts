@@ -712,7 +712,6 @@ function resizeVertical(
 function cropImage(
   src: Uint8ClampedArray,
   w: number,
-  h: number,
   x0: number,
   y0: number,
   cw: number,
@@ -1015,7 +1014,7 @@ export function enhanceFaceRegions(
     ch = Math.min(ch, h - y0)
     if (cw < 24 || ch < 24) continue
 
-    const region = cropImage(src, w, h, x0, y0, cw, ch)
+    const region = cropImage(src, w, x0, y0, cw, ch)
 
     // ① 局部超分：脸区放大后再做细节增强（脸小的人像收益最大）
     const scale = clamp(720 / cw, 1, preset.localScaleMax)
