@@ -137,7 +137,7 @@ export function unsharp(
 }
 
 /** 局部对比度增强（以中灰为轴线性拉伸），强化人脸/文字/边缘观感 */
-function localContrast(src: Uint8ClampedArray, w: number, h: number, amount: number): Uint8ClampedArray {
+function localContrast(src: Uint8ClampedArray, amount: number): Uint8ClampedArray {
   const c = 1 + amount / 150 // 1..~1.67
   const out = new Uint8ClampedArray(src.length)
   for (let i = 0; i < src.length; i += 4) {
@@ -166,7 +166,7 @@ export function enhanceImage(
   }
   if (opts.enhance) {
     img = unsharp(img, w, h, opts.enhanceAmount, 1.2, 4)
-    img = localContrast(img, w, h, opts.enhanceAmount * 0.4)
+    img = localContrast(img, opts.enhanceAmount * 0.4)
   }
   if (opts.texture) {
     img = unsharp(img, w, h, opts.textureAmount * 0.7, 0.8, 1)
