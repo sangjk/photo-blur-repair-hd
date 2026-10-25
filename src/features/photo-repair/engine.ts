@@ -27,6 +27,10 @@ export interface EnhanceOptions {
   enhanceAmount: number // 0..100
   texture: boolean
   textureAmount: number // 0..100
+  // —— 即梦式条件修复新增三步（由 planner.repairImage 编排执行，本文件不管）：
+  defect: boolean // 缺陷修复（划痕/折痕/尘点/压缩块/色斑， portraitEngine.repairDefects）
+  colorFix: boolean // 偏色校正（灰世界白平衡 + 亮度百分位拉伸， 保色相）
+  scanlineFix: boolean // 扫描线/网纹去除（行周期分量 DFT 扣除）
   targetLongEdge: number // 输出长边像素（如 1920 / 2560 / 3840 / 5120）
   format: string // 'image/jpeg' | 'image/png' | 'image/webp'
   quality: number // 0..1

@@ -145,6 +145,20 @@ export const enUS: Record<string, string> = {
   'repair.output': 'Output',
   'repair.resolution': 'Output Resolution (long edge)',
   'repair.resNote': 'Target long edge: keeps the original resolution when larger, never downscales',
+  'repair.diagTitle': 'AI Diagnosis (condition-guided repair)',
+  'repair.diagNone': 'No significant degradation detected',
+  'repair.diagApply': 'Repair by plan',
+  'repair.diagApplyAll': 'Repair all by their plans',
+  'repair.diagReadings': 'Clarity {c} · reference strength {p}',
+  'repair.diagNote':
+    'This app never invents content absent from the original: every detail is recovered from the source image itself, so AI-fabricated textures or altered object colors cannot happen.',
+  'repair.issue.blur': 'Blur',
+  'repair.issue.noise': 'Noise',
+  'repair.issue.salt': 'Salt-pepper',
+  'repair.issue.defect': 'Scratches/dust',
+  'repair.issue.fade': 'Fading/color cast',
+  'repair.issue.scanlines': 'Scan lines/mesh',
+  'repair.issue.lowres': 'Low resolution',
   'repair.res.hd': 'HD 1080P',
   'repair.res.fhd': '2K',
   'repair.res.u4k': '4K',
@@ -317,6 +331,8 @@ export const enUS: Record<string, string> = {
     'Portrait repair rebuilt as a five-stage pipeline (scratch repair, deblur, face-specific, super-resolution, realism): per-face enhancement of eyes, iris, lashes, brows, nose wings, lips and teeth, hair, skin and contours. New "Camera Realism" mode plus adjustable clarity, realism and scratch-repair strength. JPG at a constant 100% quality and lossless PNG output. 11 automatic quality checks with lower-strength retry and a conservative fallback.',
   'release.v105':
     'Upscaling now uses iterative back-projection: the enlarged image must shrink back to the original, so edge width stays at the source pixel scale instead of being diluted by interpolation. Measured feature detail is 2.6-3.0x stronger than the previous build (iris, lashes, double eyelids, brows) with better strand separation. A structure weight only back-projects where real structure exists, so flat areas never get their noise amplified — all 11 automatic quality checks pass.',
+  'release.v106':
+    'New AI Diagnosis: photos are analyzed on load for degradation types and severity (blur, noise, salt-pepper, scratches/dust, fading/color cast, scan lines, low resolution), then repaired with one click using each image own plan — a condition-guided understand, condition, recover pipeline. The essential difference from generative AI: every detail comes from the source image itself, so no fabricated textures and no altered object colors. Execution follows structure-before-color: scan-line removal, defect repair, denoise/deblur, then color correction.',
 }
 
 export default enUS

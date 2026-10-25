@@ -155,6 +155,20 @@ export const zhCN: Record<string, string> = {
   'repair.output': '输出设置',
   'repair.resolution': '输出分辨率（长边）',
   'repair.resNote': '目标长边：原图更大时保持原分辨率，绝不缩小',
+  'repair.diagTitle': 'AI 诊断（即梦式条件修复）',
+  'repair.diagNone': '未检出明显退化',
+  'repair.diagApply': '按诊断修复此图',
+  'repair.diagApplyAll': '按各自诊断修复全部',
+  'repair.diagReadings': '清晰度 {c} · 参考强度 {p}',
+  'repair.diagNote':
+    '本软件的修复不生成原图中不存在的内容：所有细节都取自原图本身，不会出现 AI 编造纹理或改变物体颜色的情况。',
+  'repair.issue.blur': '模糊',
+  'repair.issue.noise': '噪点',
+  'repair.issue.salt': '椒盐',
+  'repair.issue.defect': '划痕/尘点',
+  'repair.issue.fade': '泛黄/偏色',
+  'repair.issue.scanlines': '扫描线/网纹',
+  'repair.issue.lowres': '分辨率过低',
   'repair.res.hd': '高清 1080P',
   'repair.res.fhd': '超清 2K',
   'repair.res.u4k': '4K 超清',
@@ -326,6 +340,8 @@ export const zhCN: Record<string, string> = {
     '人像超清修复按「划痕修复 → 去模糊 → 人脸专项 → 超分放大 → 真实感校正」五段式重建：逐脸增强眼睛 / 虹膜 / 睫毛 / 眉毛 / 鼻翼 / 唇齿 / 发丝 / 皮肤与轮廓；新增「相机真实感」模式与清晰强度、真实感强度、划痕修复强度可调；JPG 恒定 100% 质量、PNG 无损输出；新增 11 项自动质检，不合格自动降强度重试并给出保守修复。',
   'release.v105':
     '放大改用「迭代反投影」：放大后的图重新缩小必须还能变回原图，边缘宽度保持原图像素尺度而不再被插值稀释。实测五官细节强度达到上一版的 2.6~3.0 倍（虹膜 / 睫毛 / 双眼皮 / 眉毛），发丝单根更分离；同时加「结构权重」——只在真有结构的位置反投影，平坦区不放大噪点，自动质检 11 项全部通过。',
+  'release.v106':
+    '新增「AI 诊断」：载入照片自动分析退化类型与严重度（模糊 / 噪点 / 椒盐 / 划痕尘点 / 泛黄偏色 / 扫描线 / 分辨率过低），一键按各自诊断计划修复，即梦式「理解 → 条件 → 恢复」管线。与生成式 AI 的本质区别：所有细节都取自原图本身，绝不编造纹理、绝不改变物体颜色。执行顺序遵循「先结构后色彩」：扫描线扣除 → 缺陷修复 → 降噪 / 去模糊 → 偏色校正。',
 }
 
 export default zhCN

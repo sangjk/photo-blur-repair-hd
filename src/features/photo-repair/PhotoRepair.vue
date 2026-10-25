@@ -9,7 +9,6 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, inject, type Ref }
 import { t } from '../../i18n'
 import { saveBinaryFileTo, saveDialog, isTauri } from '../../tauri'
 import {
-  enhanceImage,
   computeOutputSize,
   clarityScore,
   unsharp,
@@ -19,6 +18,7 @@ import {
   type EnhanceOptions,
   type ImageBuffer,
 } from './engine'
+import { analyzeImage, repairImage, type RepairPlan } from './planner'
 
 type ItemStatus = 'pending' | 'processing' | 'done' | 'failed'
 
@@ -37,6 +37,8 @@ interface ImgItem {
   enhancedUrl: string
   enhancedBlob: Blob | null
   errorMsg: string
+  /** AI 诊断计划（即梦式条件修复：载入时自动分析） */
+  plan: RepairPlan | null
 }
 
 const items = ref<ImgItem[]>([])
@@ -51,6 +53,9 @@ const options = reactive<EnhanceOptions>({
   enhanceAmount: 35,
   texture: true,
   textureAmount: 25,
+  defect: false,
+  colorFix: false,
+  scanlineFix: false,
   targetLongEdge: 1920,
   format: 'image/jpeg',
   quality: 0.92,
@@ -160,6 +165,7 @@ async function handleFiles(fileList: FileList | File[]): Promise<void> {
         enhancedUrl: '',
         enhancedBlob: null,
         errorMsg: '',
+        plan: analyzeImage(imageData.data, w, h),
       })
     } catch (e) {
       console.warn('[PhotoRepair] load failed:', file.name, e)
@@ -168,14 +174,21 @@ async function handleFiles(fileList: FileList | File[]): Promise<void> {
   if (selectedId.value === null && items.value.length) selectedId.value = items.value[0].id
 }
 
-async function processItem(item: ImgItem): Promise<void> {
+/** 合并输出设置（分辨率/格式/质量跟随全局，修复参数可来自诊断计划） */
+function mergeOutput(opts: EnhanceOptions): EnhanceOptions {
+  return { ...opts, targetLongEdge: options.targetLongEdge, format: options.format, quality: options.quality }
+}
+
+async function processItem(item: ImgItem, optsOverride?: EnhanceOptions): Promise<void> {
   item.status = 'processing'
   await new Promise((r) => setTimeout(r, 0))
+  const useOpts = optsOverride ?? options
   try {
-    const enhanced = enhanceImage(item.orig.data, item.orig.width, item.orig.height, { ...options })
+    // repairImage：即梦式执行编排（扫描线 → 缺陷 → 降噪/去模糊/增强/纹理 → 偏色校正）
+    const enhanced = repairImage(item.orig.data, item.orig.width, item.orig.height, { ...useOpts })
     // 修复后清晰度评分（客观反馈：应显著高于原图清晰度）
     item.sharpAfter = clarityScore(enhanced, item.orig.width, item.orig.height)
-    const [ow, oh] = computeOutputSize(item.orig.width, item.orig.height, options.targetLongEdge)
+    const [ow, oh] = computeOutputSize(item.orig.width, item.orig.height, useOpts.targetLongEdge)
     const out = document.createElement('canvas')
     out.width = ow
     out.height = oh
@@ -205,7 +218,7 @@ async function processItem(item: ImgItem): Promise<void> {
       }
     }
     const blob = await new Promise<Blob | null>((res) =>
-      out.toBlob((b) => res(b), options.format, options.quality),
+      out.toBlob((b) => res(b), useOpts.format, useOpts.quality),
     )
     if (!blob) throw new Error('toBlob failed')
     if (item.enhancedUrl.startsWith('blob:')) URL.revokeObjectURL(item.enhancedUrl)
@@ -249,6 +262,61 @@ async function processAll(): Promise<void> {
   }
   processing.value = false
   exportMsg.value = t('repair.allDone')
+}
+
+/** 按诊断计划修复当前选中图（计划只给修复参数，输出设置仍跟随全局） */
+async function diagApplySelected(): Promise<void> {
+  if (processing.value) return
+  const sel = selected.value
+  if (!sel) {
+    exportMsg.value = t('repair.noSelect')
+    return
+  }
+  if (!sel.plan) {
+    exportMsg.value = t('repair.diagNone')
+    return
+  }
+  processing.value = true
+  progress.cur = 0
+  progress.total = 1
+  await processItem(sel, mergeOutput(sel.plan.suggested))
+  processing.value = false
+}
+
+/** 按各自诊断计划修复全部（一图一计划——即梦式条件修复的核心） */
+async function diagApplyAll(): Promise<void> {
+  if (processing.value) return
+  const pending = items.value.filter((i) => i.status !== 'done')
+  if (!pending.length) {
+    exportMsg.value = t('repair.allDone')
+    return
+  }
+  processing.value = true
+  progress.cur = 0
+  progress.total = pending.length
+  for (const it of pending) {
+    await processItem(it, it.plan ? mergeOutput(it.plan.suggested) : undefined)
+    progress.cur++
+    await new Promise((r) => setTimeout(r, 0))
+  }
+  processing.value = false
+  exportMsg.value = t('repair.allDone')
+}
+
+const ISSUE_KEYS: Record<string, string> = {
+  blur: 'repair.issue.blur',
+  noise: 'repair.issue.noise',
+  salt: 'repair.issue.salt',
+  defect: 'repair.issue.defect',
+  fade: 'repair.issue.fade',
+  scanlines: 'repair.issue.scanlines',
+  lowres: 'repair.issue.lowres',
+}
+function issueLabel(type: string): string {
+  return t(ISSUE_KEYS[type] ?? type)
+}
+function severityPct(s: number): string {
+  return `${Math.round(s * 100)}%`
 }
 
 function fileNameFor(item: ImgItem): string {
@@ -438,6 +506,13 @@ function onDrop(e: DragEvent): void {
         {{ t('repair.processAll') }}
       </button>
       <button
+        class="px-3 py-1.5 rounded-md bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium disabled:opacity-40"
+        :disabled="processing"
+        @click="diagApplyAll"
+      >
+        {{ t('repair.diagApplyAll') }}
+      </button>
+      <button
         class="px-3 py-1.5 rounded-md bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-medium disabled:opacity-40"
         :disabled="processing"
         @click="exportSelected"
@@ -597,6 +672,42 @@ function onDrop(e: DragEvent): void {
 
         <!-- 参数面板 -->
         <div class="w-60 shrink-0 border-l border-slate-200 dark:border-slate-700 p-3 overflow-y-auto space-y-3">
+          <!-- AI 诊断（即梦式条件修复：理解 → 条件 → 恢复） -->
+          <div
+            v-if="selected?.plan"
+            class="rounded-md border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-900/20 p-2"
+          >
+            <div class="text-[11px] font-medium mb-1">{{ t('repair.diagTitle') }}</div>
+            <div v-if="!selected.plan.issues.length" class="text-[11px] text-slate-400">
+              {{ t('repair.diagNone') }}
+            </div>
+            <div v-else class="flex flex-wrap gap-1 mb-1">
+              <span
+                v-for="issue in selected.plan.issues"
+                :key="issue.type"
+                class="text-[10px] px-1.5 py-0.5 rounded"
+                :class="
+                  issue.severity > 0.5
+                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200'
+                    : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200'
+                "
+              >
+                {{ issueLabel(issue.type) }} {{ severityPct(issue.severity) }}
+              </span>
+            </div>
+            <div class="text-[10px] text-slate-400">
+              {{ t('repair.diagReadings', { c: selected.plan.clarity, p: selected.plan.structurePreserve }) }}
+            </div>
+            <button
+              class="mt-1.5 w-full px-2 py-1 rounded bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-medium disabled:opacity-40"
+              :disabled="processing"
+              @click="diagApplySelected"
+            >
+              {{ t('repair.diagApply') }}
+            </button>
+            <div class="text-[10px] text-slate-400 mt-1">{{ t('repair.diagNote') }}</div>
+          </div>
+
           <div>
             <div class="text-[11px] font-medium mb-1">{{ t('repair.options') }}</div>
             <label class="flex items-center gap-2 text-[12px] py-0.5">
