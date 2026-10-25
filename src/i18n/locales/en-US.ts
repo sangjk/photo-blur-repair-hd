@@ -243,6 +243,8 @@ export const enUS: Record<string, string> = {
   'portrait.output.4k': '4K',
   'portrait.output.5k': '5K',
   'portrait.outputNote': 'Keeps the original aspect ratio — never stretched, distorted or cropped; keeps original resolution when larger',
+  'portrait.upscaleNote':
+    'Upscaling uses iterative back-projection: the enlarged image must shrink back to the original — so it stays sharp instead of going soft, and hair strands or tooth gaps are not smeared away by interpolation',
 
   // Output format
   'portrait.format': 'Output Format',
@@ -313,6 +315,8 @@ export const enUS: Record<string, string> = {
     'New Portrait Ultra-HD Repair: face-specific enhancement (features / hair / skin / lips / contours), local super-resolution for face regions, automatic lower-strength retry on quality defects, with HD / 2K / 4K / 5K output.',
   'release.v104':
     'Portrait repair rebuilt as a five-stage pipeline (scratch repair, deblur, face-specific, super-resolution, realism): per-face enhancement of eyes, iris, lashes, brows, nose wings, lips and teeth, hair, skin and contours. New "Camera Realism" mode plus adjustable clarity, realism and scratch-repair strength. JPG at a constant 100% quality and lossless PNG output. 11 automatic quality checks with lower-strength retry and a conservative fallback.',
+  'release.v105':
+    'Upscaling now uses iterative back-projection: the enlarged image must shrink back to the original, so edge width stays at the source pixel scale instead of being diluted by interpolation. Measured feature detail is 2.6-3.0x stronger than the previous build (iris, lashes, double eyelids, brows) with better strand separation. A structure weight only back-projects where real structure exists, so flat areas never get their noise amplified — all 11 automatic quality checks pass.',
 }
 
 export default enUS

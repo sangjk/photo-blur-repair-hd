@@ -267,6 +267,10 @@ export interface QualityReport {
   ghostScore: number
   /** 拼接痕：贴回边界相对内部的梯度跃变比 */
   seamScore: number
+  /** AI 伪影：原本平坦的区域长出高频的比例 0..1（>0.06 判异常） */
+  aiScore: number
+  /** 肤色偏移：脸部肤色色度漂移量（>4.5 判异常） */
+  skinToneScore: number
   /** 是否已自动降强度重试 */
   degraded: boolean
   /** 重试后仍不合格 → 已回退「自然高清」保守输出 */
@@ -911,6 +915,671 @@ export function resizeCatmullRom(
   if (ow === w && oh === h) return src.slice()
   const tmp = resizeHorizontal(src, w, h, ow)
   return resizeVertical(tmp, ow, h, oh)
+}
+
+/* ============================================================================
+ * 迭代反投影超分（IBP）——「把缩小版本的清晰度放大」
+ * ============================================================================
+ *
+ * 要解决的问题：普通插值放大后，观感总是比原图"软"。
+ *   原因不在插值本身，而在**边缘宽度被按比例稀释**：原图里 3px 宽的一条边，
+ *   放大 2 倍后变成 6px —— 相对清晰度没变，但"发虚"的感觉来自插值把边缘
+ *   圆化了，而且后续任何半径 1（目标像素）的锐化都只能修 2~3px 的特征，
+ *   对 6px 的斜坡无能为力。
+ *
+ * IBP 的做法是反过来看这件事：
+ *   「放大后的图，如果按同样的相机模型重新缩小，必须还能变回原图。」
+ *   普通插值不满足这个约束 —— 插值出的斜坡缩小一次会变得更宽，与原图不符。
+ *   于是把「缩小一致性」当成约束反复施加：
+ *
+ *       x ← x + step · BP( source − A(x) )
+ *
+ *   A  = 高斯模糊(σ) + 面积降采样      （相机模型：模糊 + 采样）
+ *   BP = 双三次放大                     （A 的转置，工程上用更锐的核收敛更快）
+ *
+ *   每一轮迭代都把"当前估计缩小后与原图的差"反投影回高分辨率叠上去。
+ *   边缘因此被逐步压回**原图那个宽度**（以原图像素计），而不是被稀释到
+ *   scale 倍 —— 这就是"把缩小版本的清晰度放大"。
+ *
+ * 关键参数 σ（假定的相机模糊宽度，原图像素）：
+ *   σ 取大 → 只保证低频一致，几乎不锐化（退化成插值）；
+ *   σ 取小 → 反投影会朝着"更锐"的方向解，等价于以该 σ 做反卷积。
+ *   实测见 test.ts 的 σ 扫描：σ 越小越锐，但白边/光晕同步上升，
+ *   因此默认取估计模糊的 60%（既不放过可恢复的清晰度，也不制造伪锐化）。
+ * ========================================================================== */
+
+/** 可分离高斯核（支持小数 σ；σ<0.7 时至少 3 tap，避免退化成恒等） */
+function gaussTaps(sigma: number): { k: Float64Array; r: number } {
+  const r = Math.max(1, Math.ceil(sigma * 2.2))
+  const k = new Float64Array(2 * r + 1)
+  const inv = 1 / (sigma * Math.sqrt(2 * Math.PI))
+  let sum = 0
+  for (let i = -r; i <= r; i++) {
+    const v = inv * Math.exp(-(i * i) / (2 * sigma * sigma))
+    k[i + r] = v
+    sum += v
+  }
+  for (let i = 0; i < k.length; i++) k[i] /= sum
+  return { k, r }
+}
+
+/**
+ * Float32 RGB（3 通道）可分离高斯模糊，src → dst（src 不被破坏）。
+ *
+ * 就地可分离的写法：水平pass逐行拷进行缓冲再写回，垂直pass逐列拷进列缓冲再写回，
+ * 额外内存只有 O(w+h)。之所以不图省事写成"模糊进 dst 再覆盖 src"——
+ * IBP 的每轮迭代都要用**未模糊的当前估计**算前向算子，一旦把 cur 本身糊掉，
+ * 迭代会朝着越来越软的方向走（实测 |∇| 3.58 → 3.47，等于白做）。
+ */
+function gaussF(
+  src: Float32Array,
+  dst: Float32Array,
+  w: number,
+  h: number,
+  sigma: number,
+): void {
+  if (sigma <= 0.06 || w < 1 || h < 1) {
+    if (dst !== src) dst.set(src)
+    return
+  }
+  const { k, r } = gaussTaps(sigma)
+  const rowTmp = new Float32Array(w * 3)
+  const colTmp = new Float32Array(h * 3)
+  // 水平：src → dst
+  for (let y = 0; y < h; y++) {
+    const base = y * w * 3
+    for (let i = 0; i < w * 3; i++) rowTmp[i] = src[base + i]
+    for (let x = 0; x < w; x++) {
+      let s0 = 0
+      let s1 = 0
+      let s2 = 0
+      for (let i = -r; i <= r; i++) {
+        let xx = x + i
+        if (xx < 0) xx = 0
+        else if (xx >= w) xx = w - 1
+        const ww = k[i + r]
+        s0 += rowTmp[xx * 3] * ww
+        s1 += rowTmp[xx * 3 + 1] * ww
+        s2 += rowTmp[xx * 3 + 2] * ww
+      }
+      const d = base + x * 3
+      dst[d] = s0
+      dst[d + 1] = s1
+      dst[d + 2] = s2
+    }
+  }
+  // 垂直：dst → dst（列缓冲已完整，读写不冲突）
+  for (let x = 0; x < w; x++) {
+    for (let i = 0; i < h; i++) {
+      colTmp[i * 3] = dst[i * w * 3 + x * 3]
+      colTmp[i * 3 + 1] = dst[i * w * 3 + x * 3 + 1]
+      colTmp[i * 3 + 2] = dst[i * w * 3 + x * 3 + 2]
+    }
+    for (let y = 0; y < h; y++) {
+      let s0 = 0
+      let s1 = 0
+      let s2 = 0
+      for (let i = -r; i <= r; i++) {
+        let yy = y + i
+        if (yy < 0) yy = 0
+        else if (yy >= h) yy = h - 1
+        const ww = k[i + r]
+        s0 += colTmp[yy * 3] * ww
+        s1 += colTmp[yy * 3 + 1] * ww
+        s2 += colTmp[yy * 3 + 2] * ww
+      }
+      const d = y * w * 3 + x * 3
+      dst[d] = s0
+      dst[d + 1] = s1
+      dst[d + 2] = s2
+    }
+  }
+}
+
+/** Float32 RGB 水平双三次（Catmull-Rom）缩放 */
+function resizeCRF_H(f: Float32Array, w: number, h: number, ow: number): Float32Array {
+  const out = new Float32Array(ow * h * 3)
+  const wgt = new Float64Array(4)
+  const idx = new Int32Array(4)
+  const scale = w / ow
+  for (let x = 0; x < ow; x++) {
+    const sx = (x + 0.5) * scale - 0.5
+    const i1 = Math.floor(sx)
+    const t = sx - i1
+    catmullRom(t, wgt)
+    for (let k = 0; k < 4; k++) {
+      let p = i1 - 1 + k
+      if (p < 0) p = 0
+      else if (p >= w) p = w - 1
+      idx[k] = p
+    }
+    for (let y = 0; y < h; y++) {
+      const srow = y * w * 3
+      const drow = y * ow * 3 + x * 3
+      for (let c = 0; c < 3; c++) {
+        out[drow + c] =
+          f[srow + idx[0] * 3 + c] * wgt[0] +
+          f[srow + idx[1] * 3 + c] * wgt[1] +
+          f[srow + idx[2] * 3 + c] * wgt[2] +
+          f[srow + idx[3] * 3 + c] * wgt[3]
+      }
+    }
+  }
+  return out
+}
+
+/** Float32 RGB 垂直双三次（Catmull-Rom）缩放；dst 可省略（内部分配） */
+function resizeCRF_V(
+  f: Float32Array,
+  w: number,
+  h: number,
+  oh: number,
+  dst?: Float32Array,
+): Float32Array {
+  const out = dst && dst.length === w * oh * 3 ? dst : new Float32Array(w * oh * 3)
+  const wgt = new Float64Array(4)
+  const idx = new Int32Array(4)
+  const scale = h / oh
+  for (let y = 0; y < oh; y++) {
+    const sy = (y + 0.5) * scale - 0.5
+    const i1 = Math.floor(sy)
+    const t = sy - i1
+    catmullRom(t, wgt)
+    for (let k = 0; k < 4; k++) {
+      let p = i1 - 1 + k
+      if (p < 0) p = 0
+      else if (p >= h) p = h - 1
+      idx[k] = p
+    }
+    for (let x = 0; x < w; x++) {
+      const scol = x * 3
+      const drow = y * w * 3 + scol
+      for (let c = 0; c < 3; c++) {
+        out[drow + c] =
+          f[idx[0] * w * 3 + scol + c] * wgt[0] +
+          f[idx[1] * w * 3 + scol + c] * wgt[1] +
+          f[idx[2] * w * 3 + scol + c] * wgt[2] +
+          f[idx[3] * w * 3 + scol + c] * wgt[3]
+      }
+    }
+  }
+  return out
+}
+
+/** Float32 RGB 双三次缩放（可指定目标缓冲，避免每轮迭代重复分配） */
+function resizeCRF(
+  f: Float32Array,
+  w: number,
+  h: number,
+  ow: number,
+  oh: number,
+  dst?: Float32Array,
+): Float32Array {
+  if (ow === w && oh === h) {
+    if (dst) {
+      dst.set(f)
+      return dst
+    }
+    return f.slice()
+  }
+  const mid = resizeCRF_H(f, w, h, ow)
+  resizeCRF_V(mid, ow, h, oh, dst)
+  return dst as Float32Array
+}
+
+/**
+ * Float32 RGB 面积平均降采样（相机采样模型：一个低分辨率像素 = 高分辨率一小块的平均）。
+ *
+ * 坐标系约定（这里踩过一次坑，别再改错）：
+ *   源像素 i 的中心在**索引坐标** i，覆盖 [i-0.5, i+0.5)。
+ *   输出像素 x 覆盖源图区间 [x·s-0.5, (x+1)·s-0.5)，s = w/ow。
+ * 一开始写成 [x·s, (x+1)·s)，等于整体偏移半个源像素 —— 前向算子与
+ * resizeCatmullRom 的像素中心约定对不齐，IBP 每轮都在"校正一个幻影位移"，
+ * 实测无论 σ 取多小，输出都比纯插值更差（RMS 11.9 → 17.6）。
+ */
+function areaDownF(f: Float32Array, w: number, h: number, ow: number, oh: number): Float32Array {
+  const mid = new Float32Array(ow * h * 3)
+  const sx = w / ow
+  for (let x = 0; x < ow; x++) {
+    const a = x * sx - 0.5
+    const b = a + sx
+    let i0 = Math.ceil(a - 0.5)
+    let i1 = Math.floor(b - 0.5)
+    if (i0 < 0) i0 = 0
+    if (i1 > w - 1) i1 = w - 1
+    for (let y = 0; y < h; y++) {
+      const row = y * w * 3
+      const d = y * ow * 3 + x * 3
+      let s0 = 0
+      let s1 = 0
+      let s2 = 0
+      let wsum = 0
+      for (let i = i0; i <= i1; i++) {
+        const lo = i - 0.5 > a ? i - 0.5 : a
+        const hi = i + 0.5 < b ? i + 0.5 : b
+        const wgt = hi - lo
+        if (wgt <= 0) continue
+        s0 += f[row + i * 3] * wgt
+        s1 += f[row + i * 3 + 1] * wgt
+        s2 += f[row + i * 3 + 2] * wgt
+        wsum += wgt
+      }
+      if (wsum <= 0) {
+        mid[d] = f[row]
+        mid[d + 1] = f[row + 1]
+        mid[d + 2] = f[row + 2]
+      } else {
+        mid[d] = s0 / wsum
+        mid[d + 1] = s1 / wsum
+        mid[d + 2] = s2 / wsum
+      }
+    }
+  }
+  const out = new Float32Array(ow * oh * 3)
+  const sy = h / oh
+  for (let y = 0; y < oh; y++) {
+    const a = y * sy - 0.5
+    const b = a + sy
+    let j0 = Math.ceil(a - 0.5)
+    let j1 = Math.floor(b - 0.5)
+    if (j0 < 0) j0 = 0
+    if (j1 > h - 1) j1 = h - 1
+    for (let x = 0; x < ow; x++) {
+      const col = x * 3
+      const d = y * ow * 3 + col
+      let s0 = 0
+      let s1 = 0
+      let s2 = 0
+      let wsum = 0
+      for (let j = j0; j <= j1; j++) {
+        const lo = j - 0.5 > a ? j - 0.5 : a
+        const hi = j + 0.5 < b ? j + 0.5 : b
+        const wgt = hi - lo
+        if (wgt <= 0) continue
+        s0 += mid[j * ow * 3 + col] * wgt
+        s1 += mid[j * ow * 3 + col + 1] * wgt
+        s2 += mid[j * ow * 3 + col + 2] * wgt
+        wsum += wgt
+      }
+      if (wsum <= 0) {
+        out[d] = mid[col]
+        out[d + 1] = mid[col + 1]
+        out[d + 2] = mid[col + 2]
+      } else {
+        out[d] = s0 / wsum
+        out[d + 1] = s1 / wsum
+        out[d + 2] = s2 / wsum
+      }
+    }
+  }
+  return out
+}
+
+/** RGBA → Float32 RGB（丢 alpha，IBP 全程只算颜色） */
+function toRGBFloat(src: Uint8ClampedArray, n: number): Float32Array {
+  const f = new Float32Array(n * 3)
+  for (let i = 0, p = 0; i < n; i++, p += 3) {
+    f[p] = src[i * 4]
+    f[p + 1] = src[i * 4 + 1]
+    f[p + 2] = src[i * 4 + 2]
+  }
+  return f
+}
+
+/** Float32 灰度可分离盒式模糊（半径 r，原地写入 dst） */
+function boxBlurGrayF(src: Float32Array, dst: Float32Array, w: number, h: number, r: number): void {
+  const win = r * 2 + 1
+  const row = new Float32Array(w)
+  for (let y = 0; y < h; y++) {
+    let sum = 0
+    for (let x = -r; x <= r; x++) {
+      const xx = x < 0 ? 0 : x >= w ? w - 1 : x
+      sum += src[y * w + xx]
+    }
+    for (let x = 0; x < w; x++) {
+      row[x] = sum / win
+      const xOut = x - r < 0 ? 0 : x - r
+      const xIn = x + r + 1 >= w ? w - 1 : x + r + 1
+      sum += src[y * w + xIn] - src[y * w + xOut]
+    }
+    for (let x = 0; x < w; x++) dst[y * w + x] = row[x]
+  }
+  const col = new Float32Array(h)
+  for (let x = 0; x < w; x++) {
+    let sum = 0
+    for (let y = -r; y <= r; y++) {
+      const yy = y < 0 ? 0 : y >= h ? h - 1 : y
+      sum += dst[yy * w + x]
+    }
+    for (let y = 0; y < h; y++) {
+      col[y] = sum / win
+      const yOut = y - r < 0 ? 0 : y - r
+      const yIn = y + r + 1 >= h ? h - 1 : y + r + 1
+      sum += dst[yIn * w + x] - dst[yOut * w + x]
+    }
+    for (let y = 0; y < h; y++) dst[y * w + x] = col[y]
+  }
+}
+
+/**
+ * 结构权重图 0..1（源分辨率）：**只在真有结构的地方做反投影**。
+ *
+ * 为什么需要它：IBP 的前向模型是"模糊 + 降采样"，它会把输入里**任何**与模型不符的
+ * 高频都当成"该被恢复的细节"忠实重建到高分辨率 —— 包括噪点和 JPEG 压缩块残迹。
+ * 孤立实验（纯高斯模糊、无噪点）IBP 相对真值 RMS 降 13%；
+ * 但一接进真实管线（有噪点 + 压缩块 + 划痕修复残迹）就反过来升 2.3 倍，
+ * 而且质检的「AI 伪影」从 0.015 涨到 0.091。差别就在噪声。
+ *
+ * 做法：5×5 局部标准差 → 按**噪声底**归一化的软阈值 → 轻度模糊。
+ *   · 平坦区：std ≈ σ_noise → 权重 0 → 残差（基本是噪声）被丢掉，不放大；
+ *   · 边缘/纹理区：std ≫ σ_noise → 权重 1 → 照常全量校正，清晰度一点不减。
+ * 权重图必须平滑（盒式模糊半径 2 ≈ 高斯 σ2.4），否则权重边界会留下块状痕。
+ */
+function structureWeight(f: Float32Array, w: number, h: number): Float32Array {
+  const n = w * h
+  const gray = new Float32Array(n)
+  for (let p = 0; p < n; p++) {
+    gray[p] = 0.299 * f[p * 3] + 0.587 * f[p * 3 + 1] + 0.114 * f[p * 3 + 2]
+  }
+  // 5×5 局部标准差：先算均值与平方均值（盒式半径 2），再 var = E[x²]−E[x]²
+  const mean = new Float32Array(n)
+  const sq = new Float32Array(n)
+  const tmp = new Float32Array(n)
+  for (let p = 0; p < n; p++) sq[p] = gray[p] * gray[p]
+  boxBlurGrayF(gray, mean, w, h, 2)
+  boxBlurGrayF(sq, tmp, w, h, 2)
+  const sigma = noiseSigmaOf(gray, w, h)
+  // 阈值按噪声底取 2.2σ：合成老照片上标定出的折中 ——
+  //   1.8σ → 清晰度更高，但平坦区 5×5 std 5.56 / AI 伪影 0.052（贴着阈值）
+  //   2.2σ → std 4.36 / AI 伪影 0.034，清晰度只掉 7%
+  const t0 = Math.max(2.5, 2.2 * sigma)
+  const t1 = t0 + 4
+  const wgt = new Float32Array(n)
+  for (let p = 0; p < n; p++) {
+    const v = tmp[p] - mean[p] * mean[p]
+    const std = v > 0 ? Math.sqrt(v) : 0
+    let u = (std - t0) / (t1 - t0)
+    wgt[p] = u < 0 ? 0 : u > 1 ? 1 : u
+  }
+  // 平滑权重图
+  boxBlurGrayF(wgt, tmp, w, h, 2)
+  for (let p = 0; p < n; p++) wgt[p] = tmp[p]
+  return wgt
+}
+
+/**
+ * 估计原图的高斯模糊宽度 σ（原图像素）。
+ *
+ * 方法：**平均边缘剖面**。
+ *   1. 取梯度幅值前 2% 的像素，且要求它是沿梯度方向的局部极大（真正的边缘中心）；
+ *   2. 沿梯度方向采样 ±6px 的亮度剖面（梯度方向即亮度增加方向，所以所有剖面
+ *      天然同向，不会互相抵消）；
+ *   3. 把所有剖面**按原幅值累加**求平均，测平均剖面的 10%→90% 上升宽度。
+ *   高斯阶跃的 10-90% 上升宽度 = 2.563σ。
+ *
+ * 为什么用"平均剖面"而不是"逐边测完取中位数"：
+ *   自然图里的边缘宽度是**混合分布**（锐利的细纹理 + 被糊掉的结构边）。
+ *   按梯度幅值取前 2% 会系统性偏向前者（细纹理对比高、梯度大），
+ *   实测中位数法把 σ=2.45 估成 2.10、σ=3.46 估成 2.31（低估 14%~33%），
+ *   导致 IBP 不敢放手锐化。平均剖面按对比度加权，反映的是"主导模糊"，
+ *   正是反卷积需要的那个量。
+ */
+export function estimateBlurSigma(src: Uint8ClampedArray, w: number, h: number): number {
+  if (w < 24 || h < 24) return 1
+  const n = w * h
+  const g = new Float32Array(n)
+  for (let i = 0, p = 0; i < n; i++, p += 4) {
+    g[i] = 0.299 * src[p] + 0.587 * src[p + 1] + 0.114 * src[p + 2]
+  }
+  const mag = new Float32Array(n)
+  let maxMag = 0
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const p = y * w + x
+      const gx = g[p + 1] - g[p - 1]
+      const gy = g[p + w] - g[p - w]
+      const m = Math.sqrt(gx * gx + gy * gy)
+      mag[p] = m
+      if (m > maxMag) maxMag = m
+    }
+  }
+  if (maxMag < 15) return 0.7 // 几乎没有边缘 → 视为轻微模糊
+  const NB = 128
+  const hist = new Uint32Array(NB + 1)
+  for (let p = 0; p < n; p++) {
+    let b = Math.round((mag[p] / maxMag) * NB)
+    if (b > NB) b = NB
+    hist[b]++
+  }
+  let acc = 0
+  let thr = 0
+  for (let b = 0; b <= NB; b++) {
+    acc += hist[b]
+    if (acc * 100 >= n * 98) {
+      thr = (maxMag * b) / NB
+      break
+    }
+  }
+  if (thr < 10) thr = 10
+
+  const R = 6
+  const S = R * 2 + 1
+  const stride = Math.max(1, Math.floor(Math.sqrt(n / 40000)))
+  // 平均剖面：按原幅值累加（高对比边缘主导，低对比边缘只贡献少量噪声）
+  const prof = new Float64Array(S)
+  let used = 0
+  for (let y = R + 2; y < h - R - 2; y += stride) {
+    for (let x = R + 2; x < w - R - 2; x += stride) {
+      const p = y * w + x
+      if (mag[p] < thr) continue
+      const gx = g[p + 1] - g[p - 1]
+      const gy = g[p + w] - g[p - w]
+      const inv = 1 / (Math.sqrt(gx * gx + gy * gy) || 1)
+      const ux = gx * inv
+      const uy = gy * inv
+      // 必须是沿梯度方向的局部极大，否则拿到的是斜坡上任意一点
+      let isMax = true
+      for (let d = 1; d <= 2; d++) {
+        const xa = Math.round(x + ux * d)
+        const ya = Math.round(y + uy * d)
+        const xb = Math.round(x - ux * d)
+        const yb = Math.round(y - uy * d)
+        if (xa < 0 || ya < 0 || xa >= w || ya >= h) continue
+        if (xb < 0 || yb < 0 || xb >= w || yb >= h) continue
+        if (mag[ya * w + xa] > mag[p] || mag[yb * w + xb] > mag[p]) isMax = false
+      }
+      if (!isMax) continue
+      const v = new Float64Array(S)
+      let lo = 1e9
+      let hi = -1e9
+      for (let k = 0; k < S; k++) {
+        const d = k - R
+        const sxp = x + ux * d
+        const syp = y + uy * d
+        const x0 = Math.floor(sxp)
+        const y0 = Math.floor(syp)
+        let val: number
+        if (x0 < 0 || y0 < 0 || x0 >= w - 1 || y0 >= h - 1) {
+          val = g[p]
+        } else {
+          const fx = sxp - x0
+          const fy = syp - y0
+          const a0 = g[y0 * w + x0]
+          const b0 = g[y0 * w + x0 + 1]
+          const c0 = g[(y0 + 1) * w + x0]
+          const d0 = g[(y0 + 1) * w + x0 + 1]
+          val =
+            a0 * (1 - fx) * (1 - fy) + b0 * fx * (1 - fy) + c0 * (1 - fx) * fy + d0 * fx * fy
+        }
+        v[k] = val
+        if (val < lo) lo = val
+        if (val > hi) hi = val
+      }
+      if (hi - lo < 25) continue
+      for (let k = 0; k < S; k++) prof[k] += v[k]
+      used++
+    }
+  }
+  if (used < 12) return 0.9
+  // 平均剖面的 10%→90% 上升宽度
+  let plo = 1e9
+  let phi = -1e9
+  for (let k = 0; k < S; k++) {
+    if (prof[k] < plo) plo = prof[k]
+    if (prof[k] > phi) phi = prof[k]
+  }
+  const span = phi - plo
+  if (span < 1) return 0.9
+  const t10 = plo + span * 0.1
+  const t90 = plo + span * 0.9
+  let pos10 = -1
+  let pos90 = -1
+  for (let k = 1; k < S; k++) {
+    const dv = prof[k] - prof[k - 1]
+    if (Math.abs(dv) < 1e-9) continue
+    if (pos10 < 0 && (prof[k - 1] - t10) * (prof[k] - t10) <= 0) {
+      pos10 = k - 1 + (t10 - prof[k - 1]) / dv
+    }
+    if (pos90 < 0 && (prof[k - 1] - t90) * (prof[k] - t90) <= 0) {
+      pos90 = k - 1 + (t90 - prof[k - 1]) / dv
+    }
+  }
+  if (pos10 < 0 || pos90 < 0) return 0.9
+  const rise = Math.abs(pos90 - pos10)
+  if (rise <= 0.15) return 0.7
+  return Math.max(0.45, Math.min(4.5, rise / 2.563))
+}
+
+/**
+ * 迭代反投影超分。
+ *
+ * @param psfSigma 假定的相机模糊宽度（**原图像素**）。越小越锐（等价于按该 σ 反卷积），
+ *                  越大越保守。传 0 表示"用插值，不反投影"。
+ * @param iterations 迭代次数（每轮一次前向模拟 + 一次反投影）
+ * @param step 每轮叠加比例 0..1
+ * @returns 目标尺寸的 RGBA；alpha 沿用插值放大的结果（IBP 只算颜色）
+ */
+/**
+ * IBP 的像素数上限：超过它就退回普通插值。
+ *
+ * IBP 需要 2 份 Float32 RGB 的全图缓冲（当前估计 + 前向模拟），
+ * 1920×2560 约 120MB、3840×5120 约 470MB。低配机上不赌内存，
+ * 到 5K 以上（>2400 万像素）直接走插值，由 computeOutputSize 的 8192 上限兜底。
+ */
+export const IBP_MAX_PIXELS = 24_000_000
+
+/** 该输出尺寸能否跑 IBP */
+export function canBackProject(ow: number, oh: number): boolean {
+  return ow > 0 && oh > 0 && ow * oh <= IBP_MAX_PIXELS
+}
+
+/**
+ * IBP 默认迭代参数（合成老照片端到端标定，1920×2560 / σ≈3.1）：
+ *
+ *   it=8 → 虹膜 43.8、平坦区 5×5 std 5.56（旧管线 3.53）、AI 伪影 0.052
+ *   it=6 → 虹膜 40.5、平坦区 5×5 std 4.36（旧管线 3.53）、AI 伪影 0.034
+ *   旧管线 → 虹膜 15.3、平坦区 5×5 std 3.53、AI 伪影 0.015
+ *
+ * 取 it=6：清晰度仍是旧版的 2.6~3.0 倍（虹膜/睫毛/双眼皮/眉毛），
+ * 而平坦区粗糙度只比旧版高 23%、AI 伪影 0.034 对阈值 0.06 有近一倍余量。
+ * it=8 虽然更锐，但余量太薄（0.052/0.06），真实照片噪声更大时会误触发重试。
+ */
+export const IBP_DEFAULT_ITERS = 6
+export const IBP_DEFAULT_STEP = 0.8
+
+/**
+ * 各修复模式的 σ 缩放。
+ *
+ * 方向说明（实测，别搞反）：σ 是"假定的相机模糊宽度"，**越大越锐**。
+ * σ 取大 → 前向模型认为原图比估计更糊 → 残差是锐化信号 → 反投影放大利化；
+ * σ 取小 → 前向模型已经能解释原图 → 残差趋零 → 几乎不锐化（退化成插值）。
+ * 甜点在"估计出的真实模糊"附近：再大 15% 振铃就从 0.4‰ 跳到 4‰（看得见白边）。
+ */
+export const IBP_SIGMA_SCALE: Record<PortraitStrength, number> = {
+  natural: 0.9,
+  ultra: 1,
+  extreme: 1.08,
+  camera: 0.8,
+}
+
+/** 按选项算出本次 IBP 用的 σ（原图像素） */
+export function ibpSigmaFor(
+  src: Uint8ClampedArray,
+  w: number,
+  h: number,
+  opts: PortraitOptions,
+): number {
+  const est = estimateBlurSigma(src, w, h)
+  const g = clarityGain(opts.clarity)
+  const scale = IBP_SIGMA_SCALE[opts.strength] * Math.max(0.85, Math.min(1.1, g))
+  return Math.max(0.6, Math.min(3.4, est * scale))
+}
+
+export function backProjectUpscale(
+  src: Uint8ClampedArray,
+  w: number,
+  h: number,
+  ow: number,
+  oh: number,
+  psfSigma: number,
+  iterations = 6,
+  step = 0.8,
+): Uint8ClampedArray {
+  // 初始估计始终由保边插值给出：IBP 只负责"把清晰度找回来"，
+  // 不负责从零造图 —— 这样即使 σ 设错，结果也不会比插值更差。
+  const init = resizeCatmullRom(src, w, h, ow, oh)
+  if (ow === w && oh === h) return init
+  if (psfSigma <= 0.05 || iterations <= 0 || step <= 0) return init
+  // 超大输出的内存保护：Float32 缓冲 ×2 已经接近上限时退回插值，
+  // 由 computeOutputSize 的 8192 硬上限之外再兜一层（低配机不赌）
+  if (ow * oh > 24_000_000) return init
+
+  const s = ow / w
+  const sigmaHR = Math.max(0.3, psfSigma * s) // 换算到目标分辨率
+  const nLR = w * h
+  const nHR = ow * oh
+
+  const srcF = toRGBFloat(src, nLR)
+  const cur = toRGBFloat(init, nHR)
+  const work = new Float32Array(nHR * 3) // 模糊后的前向模拟 + 反投影更新复用
+  const lr = new Float32Array(nLR * 3)
+  const alpha = new Uint8ClampedArray(nHR)
+  for (let i = 0; i < nHR; i++) alpha[i] = init[i * 4 + 3]
+  // 结构权重：平坦区不反投影（那里的残差是噪声/压缩块，放大就是 AI 假纹理）
+  const sw = structureWeight(srcF, w, h)
+
+  const iters = Math.max(1, Math.min(12, Math.round(iterations)))
+  const st = Math.max(0.05, Math.min(1, step))
+  for (let it = 0; it < iters; it++) {
+    // 前向：当前估计模糊 σ_hr → 面积降采样回原图尺寸（cur 不被破坏）
+    work.set(cur)
+    gaussF(work, work, ow, oh, sigmaHR)
+    const sim = areaDownF(work, ow, oh, w, h)
+    // 残差（原图域）× 结构权重
+    for (let p = 0; p < nLR; p++) {
+      const k = sw[p]
+      const i = p * 3
+      lr[i] = (srcF[i] - sim[i]) * k
+      lr[i + 1] = (srcF[i + 1] - sim[i + 1]) * k
+      lr[i + 2] = (srcF[i + 2] - sim[i + 2]) * k
+    }
+    // 反投影：残差双三次放大回目标分辨率（写进 work）
+    resizeCRF(lr, w, h, ow, oh, work)
+    // 叠加
+    for (let i = 0; i < nHR * 3; i++) {
+      const v = cur[i] + st * work[i]
+      cur[i] = v < 0 ? 0 : v > 255 ? 255 : v
+    }
+  }
+
+  const out = new Uint8ClampedArray(nHR * 4)
+  for (let i = 0, p = 0; i < nHR; i++, p += 4) {
+    out[p] = cur[i * 3]
+    out[p + 1] = cur[i * 3 + 1]
+    out[p + 2] = cur[i * 3 + 2]
+    out[p + 3] = alpha[i]
+  }
+  return out
 }
 
 function resizeHorizontal(
@@ -2646,6 +3315,10 @@ export function assessQuality(
     waxScore: Math.round(waxScore * 1000) / 1000,
     ghostScore,
     seamScore: Math.round(seamScore * 100) / 100,
+    // AI 伪影与肤色偏移也进报告：UI 的质检明细要能显示每一项的读数，
+    // 而不只是一个"通过/异常"的结论（否则用户无法判断严不严重）
+    aiScore: Math.round(aiScore * 1000) / 1000,
+    skinToneScore: Math.round(toneShift * 10) / 10,
     degraded: false,
     fallback: false,
     issues,
